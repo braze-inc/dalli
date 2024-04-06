@@ -41,6 +41,8 @@ module Dalli
       :rcvbuf => nil
     }
 
+    ALLOWED_MULTI_OPS = %i[set setq delete deleteq add addq replace replaceq].freeze
+
     def initialize(attribs, options = {})
       @hostname, @port, @weight, @socket_type = parse_hostname(attribs)
       @fail_count = 0
@@ -52,6 +54,7 @@ module Dalli
       @error = nil
       @pid = nil
       @inprogress = nil
+      @pending_multi_response = nil
     end
 
     def name
@@ -67,6 +70,11 @@ module Dalli
       verify_state
       raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
       begin
+        # if we have exited a multi block, flush any responses that might still be pending
+        if @pending_multi_response && (!multi? || !ALLOWED_MULTI_OPS.include?(op))
+          noop
+          @pending_multi_response = false
+        end
         send(op, *args)
       rescue Dalli::MarshalError => ex
         Dalli.logger.error "Marshalling error for key '#{args.first}': #{ex.message}"
@@ -288,6 +296,7 @@ module Dalli
       guard_max_value(key, value) do
         req = [REQUEST, OPCODES[multi? ? :setq : :set], key.bytesize, 8, 0, 0, value.bytesize + key.bytesize + 8, 0, cas, flags, ttl, key, value].pack(FORMAT[:set])
         write(req)
+        @pending_multi_response ||= multi?
         cas_response unless multi?
       end
     end
@@ -299,6 +308,7 @@ module Dalli
       guard_max_value(key, value) do
         req = [REQUEST, OPCODES[multi? ? :addq : :add], key.bytesize, 8, 0, 0, value.bytesize + key.bytesize + 8, 0, 0, flags, ttl, key, value].pack(FORMAT[:add])
         write(req)
+        @pending_multi_response ||= multi?
         cas_response unless multi?
       end
     end
@@ -310,6 +320,7 @@ module Dalli
       guard_max_value(key, value) do
         req = [REQUEST, OPCODES[multi? ? :replaceq : :replace], key.bytesize, 8, 0, 0, value.bytesize + key.bytesize + 8, 0, cas, flags, ttl, key, value].pack(FORMAT[:replace])
         write(req)
+        @pending_multi_response ||= multi?
         cas_response unless multi?
       end
     end
@@ -317,6 +328,7 @@ module Dalli
     def delete(key, cas)
       req = [REQUEST, OPCODES[multi? ? :deleteq : :delete], key.bytesize, 0, 0, 0, key.bytesize, 0, cas, key].pack(FORMAT[:delete])
       write(req)
+      @pending_multi_response ||= multi?
       generic_response unless multi?
     end
 
