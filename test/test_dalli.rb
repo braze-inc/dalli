@@ -334,6 +334,23 @@ describe 'Dalli' do
       end
     end
 
+    it 'does not corrupt multiget with errors' do
+      memcached_persistent do |dc|
+        dc.close
+        dc.flush
+        dc.set('a', 'av')
+        dc.set('b', 'bv')
+        assert_equal 'av', dc.get('a')
+        assert_equal 'bv', dc.get('b')
+
+        dc.multi do
+          dc.delete('non_existent_key')
+        end
+        assert_equal 'av', dc.get('a')
+        assert_equal 'bv', dc.get('b')
+      end
+    end
+
     it 'support raw incr/decr' do
       memcached_persistent do |client|
         client.flush
