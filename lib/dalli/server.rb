@@ -375,7 +375,7 @@ module Dalli
     # We need to read all the responses at once.
     def noop
       write_noop
-      multi_response
+      flush_response
     end
 
     def append(key, value)
@@ -556,15 +556,11 @@ module Dalli
       end
     end
 
-    def multi_response
-      hash = {}
+    def flush_response
       while true
-        (key_length, _, body_length, _) = read_header.unpack(KV_HEADER)
-        return hash if key_length == 0
-        flags = read(4).unpack('N')[0]
-        key = read(key_length)
-        value = read(body_length - key_length - 4) if body_length - key_length - 4 > 0
-        hash[key] = deserialize(value, flags)
+        (key_length, status, body_length, _) = read_header.unpack(KV_HEADER)
+        return if key_length == 0 && status == 0
+        read(body_length)
       end
     end
 
