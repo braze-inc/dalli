@@ -560,7 +560,7 @@ module Dalli
       while true
         (key_length, status, body_length, _) = read_header.unpack(KV_HEADER)
         return if key_length == 0 && status == 0
-        read(body_length)
+        read(body_length) if body_length > 0
       end
     end
 
