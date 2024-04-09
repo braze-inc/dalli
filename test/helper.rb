@@ -11,19 +11,14 @@ require_relative 'memcached_mock'
 ENV['MEMCACHED_SASL_PWDB'] = "#{File.dirname(__FILE__)}/sasl/sasldb"
 ENV['SASL_CONF_PATH'] = "#{File.dirname(__FILE__)}/sasl/memcached.conf"
 
-require 'rails'
-puts "Testing with Rails #{Rails.version}"
-
 require 'dalli'
 require 'logger'
 
-require 'active_support/time'
-require 'active_support/cache/dalli_store'
 
 Dalli.logger = Logger.new(STDOUT)
 Dalli.logger.level = Logger::ERROR
 
-class MiniTest::Spec
+class Minitest::Test
   include MemcachedMock::Helper
 
   def assert_error(error, regexp=nil, &block)
