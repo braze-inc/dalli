@@ -46,12 +46,13 @@ module Dalli
       raise Dalli::RingError, "No server available"
     end
 
-    def lock
-      @servers.each(&:lock!)
+    def lock(servers)
+      locked_servers = servers.dup # make a copy, since the argument may be mutated after locking
+      locked_servers.each(&:lock!)
       begin
         return yield
       ensure
-        @servers.each(&:unlock!)
+        locked_servers.each(&:unlock!)
       end
     end
 

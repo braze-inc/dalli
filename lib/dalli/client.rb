@@ -422,16 +422,16 @@ module Dalli
     def get_multi_yielder(keys)
       perform do
         return {} if keys.empty?
-        ring.lock do
+        groups = groups_for_keys(keys)
+        servers = groups.keys
+        return if servers.empty?
+        ring.lock(servers) do
           begin
-            groups = groups_for_keys(keys)
             if unfound_keys = groups.delete(nil)
               Dalli.logger.debug { "unable to get keys for #{unfound_keys.length} keys because no matching server was found" }
             end
             make_multi_get_requests(groups)
 
-            servers = groups.keys
-            return if servers.empty?
             servers = perform_multi_response_start(servers)
 
             start = Time.now
