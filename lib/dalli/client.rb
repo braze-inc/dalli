@@ -26,8 +26,8 @@ module Dalli
     # - :threadsafe - ensure that only one thread is actively using a socket at a time. Default: true.
     # - :expires_in - default TTL in seconds if you do not pass TTL as a parameter to an individual operation, defaults to 0 or forever
     # - :compress - defaults to false, if true Dalli will compress values larger than 1024 bytes before sending them to memcached.
-    # - :serializer - defaults to Marshal
-    # - :compressor - defaults to zlib
+    # - :serializer - defaults to Identity
+    # - :compressor - defaults to Identity
     # - :cache_nils - defaults to false, if true Dalli will not treat cached nil values as 'not found' for #fetch operations.
     # - :digest_class - defaults to Digest::MD5, allows you to pass in an object that responds to the hexdigest method, useful for injecting a FIPS compliant hash object.
     #
