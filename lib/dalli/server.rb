@@ -26,12 +26,12 @@ module Dalli
       :value_max_bytes => 1024 * 1024,
       # surpassing value_max_bytes either warns (false) or throws (true)
       :error_when_over_max_size => false,
-      :compressor => Compressor,
+      :compressor => (defined?($TESTING) && $TESTING) ? Compressor : Identity,
       # min byte size to attempt compression
       :compression_min_size => 1024,
       # max byte size for compression
       :compression_max_size => false,
-      :serializer => Marshal,
+      :serializer => (defined?($TESTING) && $TESTING) ? Marshal : Identity,
       :username => nil,
       :password => nil,
       :keepalive => true,
