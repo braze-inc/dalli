@@ -16,7 +16,7 @@ GEM
     minitest (5.22.3)
     mocha (2.1.0)
       ruby2_keywords (>= 0.0.5)
-    rack (2.2.9)
+    rack (2.2.11)
     rake (13.2.1)
     ruby2_keywords (0.0.5)
     simplecov (0.22.0)
@@ -38,7 +38,7 @@ DEPENDENCIES
   kgio
   minitest
   mocha
-  rack (~> 2.0, >= 2.2.0)
+  rack (~> 2.2)
   rake
   simplecov
 
