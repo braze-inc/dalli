@@ -9,7 +9,7 @@ group :test do
   gem 'minitest'
   gem 'mocha'
   gem 'rake'
-  gem 'rack', '~> 2.0', '>= 2.2.0'
+  gem 'rack', '~> 2.2'
   gem 'connection_pool'
   gem 'simplecov'
 end
