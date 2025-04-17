@@ -64,7 +64,7 @@ begin
       sock.server = server
       sock.kgio_wait_writable
       sock
-    rescue Timeout::Error
+    rescue *Dalli::Server::TIMEOUT_ERRORS
       sock.close if sock
       raise
     end
@@ -78,7 +78,7 @@ begin
       sock.server = server
       sock.kgio_wait_writable
       sock
-    rescue Timeout::Error
+    rescue *Dalli::Server::TIMEOUT_ERRORS
       sock.close if sock
       raise
     end
