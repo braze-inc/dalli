@@ -88,16 +88,16 @@ describe 'Sasl' do
 
     it 'pass SASL as URI' do
       Dalli::Server.expects(:new).with("localhost:19124",
-        :username => "testuser", :password => "testtest").returns(@server)
+        { :username => "testuser", :password => "testtest" }).returns(@server)
       dc = Dalli::Client.new('memcached://testuser:testtest@localhost:19124')
       dc.flush_all
     end
 
     it 'pass SASL as ring of URIs' do
       Dalli::Server.expects(:new).with("localhost:19124",
-        :username => "testuser", :password => "testtest").returns(@server)
+        { :username => "testuser", :password => "testtest" }).returns(@server)
       Dalli::Server.expects(:new).with("otherhost:19125",
-        :username => "testuser2", :password => "testtest2").returns(@server)
+        { :username => "testuser2", :password => "testtest2" }).returns(@server)
       dc = Dalli::Client.new(['memcached://testuser:testtest@localhost:19124',
       'memcached://testuser2:testtest2@otherhost:19125'])
       dc.flush_all
