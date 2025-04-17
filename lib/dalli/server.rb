@@ -2,6 +2,8 @@
 require 'socket'
 require 'timeout'
 
+require 'dalli/pid_cache'
+
 module Dalli
   class Server
     attr_accessor :hostname
@@ -214,7 +216,7 @@ module Dalli
 
     def verify_state
       failure!(RuntimeError.new('Already writing to socket')) if @inprogress
-      if @pid && @pid != Process.pid
+      if @pid && @pid != PIDCache.pid
         message = 'Fork detected, re-connecting child process...'
         Dalli.logger.info { message }
         reconnect! message
@@ -594,7 +596,7 @@ module Dalli
       Dalli.logger.debug { "Dalli::Server#connect #{name}" }
 
       begin
-        @pid = Process.pid
+        @pid = PIDCache.pid
         if socket_type == :unix
           @sock = KSocket::UNIX.open(hostname, self, options)
         else
