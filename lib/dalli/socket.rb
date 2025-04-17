@@ -28,7 +28,7 @@ begin
     alias :write :kgio_write
 
     def readfull(count)
-      value = String.new('')
+      value = String.new(capacity: count + 1)
       while true
         value << kgio_read!(count - value.bytesize)
         break if value.bytesize == count
@@ -95,7 +95,7 @@ rescue LoadError
   module Dalli::Server::KSocket
     module InstanceMethods
       def readfull(count)
-        value = String.new('')
+        value = String.new(capacity: count + 1)
         begin
           while true
             value << read_nonblock(count - value.bytesize)
