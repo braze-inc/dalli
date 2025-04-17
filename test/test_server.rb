@@ -1,4 +1,5 @@
 # frozen_string_literal: true
+require 'ostruct'
 require_relative 'helper'
 
 describe Dalli::Server do
