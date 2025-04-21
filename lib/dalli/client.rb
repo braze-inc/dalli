@@ -50,6 +50,7 @@ module Dalli
       old, Thread.current[:dalli_multi] = Thread.current[:dalli_multi], true
       yield
     ensure
+      @ring&.flush_multi_responses
       Thread.current[:dalli_multi] = old
     end
 

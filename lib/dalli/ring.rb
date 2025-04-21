@@ -63,6 +63,15 @@ module Dalli
       end
     end
 
+    def flush_multi_responses
+      @servers.each do |s|
+        s.request(:noop)
+      rescue Dalli::NetworkError
+        # Ignore this error, as it indicates the socket is unavailable
+        # and there's no need to flush
+      end
+    end
+
     private
 
     def threadsafe!
