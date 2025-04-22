@@ -54,7 +54,7 @@ module Dalli
     end
 
     def lock(servers)
-      locked_servers = servers.dup # make a copy, since the argument may be mutated after locking
+      locked_servers = servers.dup.compact # make a copy, since the argument may be mutated after locking
       locked_servers.each(&:lock!)
       begin
         return yield
