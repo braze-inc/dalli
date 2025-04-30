@@ -3,7 +3,6 @@ source 'https://rubygems.org'
 gemspec
 
 gem 'appraisal'
-gem 'kgio', :platform => :mri
 
 group :test do
   gem 'minitest'

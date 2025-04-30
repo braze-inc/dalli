@@ -146,7 +146,7 @@ module Dalli
     def multi_response_start
       verify_state
       write_noop
-      @multi_buffer = String.new('')
+      @multi_buffer = +""
       @position = 0
       @inprogress = true
     end
@@ -182,7 +182,7 @@ module Dalli
           break
 
         elsif buf.bytesize - pos >= 24 + body_length
-          flags = buf.slice(pos + 24, 4).unpack('N')[0]
+          flags = buf.slice(pos + 24, 4).unpack1('N')
           key = buf.slice(pos + 24 + 4, key_length)
           value = buf.slice(pos + 24 + 4 + key_length, body_length - key_length - 4) if body_length - key_length - 4 > 0
 
@@ -292,7 +292,7 @@ module Dalli
     end
 
     def send_multiget(keys)
-      req = String.new("")
+      req = +""
       keys.each do |key|
         req << [REQUEST, OPCODES[:getkq], key.bytesize, 0, 0, 0, key.bytesize, 0, 0, key].pack(FORMAT[:getkq])
       end
@@ -357,7 +357,7 @@ module Dalli
       req = [REQUEST, OPCODES[opcode], key.bytesize, 20, 0, 0, key.bytesize + 20, 0, 0, h, l, dh, dl, expiry, key].pack(FORMAT[opcode])
       write(req)
       body = generic_response
-      body ? body.unpack('Q>').first : body
+      body ? body.unpack1('Q>') : body
     end
 
     def decr(key, count, ttl, default)
@@ -485,7 +485,7 @@ module Dalli
       elsif status != 0
         raise Dalli::DalliError, "Response error #{status}: #{RESPONSE_CODES[status]}"
       elsif data
-        flags = data[0...extras].unpack('N')[0]
+        flags = data[0...extras].unpack1('N')
         value = data[extras..-1]
         data = deserialize(value, flags)
       end
@@ -534,7 +534,7 @@ module Dalli
       elsif status != 0
         raise Dalli::DalliError, "Response error #{status}: #{RESPONSE_CODES[status]}"
       elsif data
-        flags = data[0...extras].unpack('N')[0]
+        flags = data[0...extras].unpack1('N')
         value = data[extras..-1]
         unpack ? deserialize(value, flags) : value
       else
@@ -558,7 +558,7 @@ module Dalli
 
     def keyvalue_response
       hash = {}
-      while true
+      loop do
         (key_length, _, body_length, _) = read_header.unpack(KV_HEADER)
         return hash if key_length == 0
         key = read(key_length)
@@ -568,7 +568,7 @@ module Dalli
     end
 
     def flush_response
-      while true
+      loop do
         (key_length, status, body_length, _) = read_header.unpack(KV_HEADER)
         return if key_length == 0 && status == 0
         read(body_length) if body_length > 0
@@ -606,10 +606,10 @@ module Dalli
 
       begin
         @pid = PIDCache.pid
-        if socket_type == :unix
-          @sock = KSocket::UNIX.open(hostname, self, options)
+        @sock = if socket_type == :unix
+          Dalli::Socket::UNIX.open(hostname, self, options)
         else
-          @sock = KSocket::TCP.open(hostname, port, self, options)
+          Dalli::Socket::TCP.open(hostname, port, self, options)
         end
         sasl_authentication if need_auth?
         @version = version # trigger actual connect
@@ -752,7 +752,7 @@ module Dalli
       res = str.match(/\A(\[([\h:]+)\]|[^:]+)(?::(\d+))?(?::(\d+))?\z/)
       raise Dalli::DalliError, "Could not parse hostname #{str}" if res.nil? || res[1] == '[]'
       hostnam = res[2] || res[1]
-      if hostnam =~ /\A\//
+      if hostnam.start_with?("/")
         socket_type = :unix
         # in case of unix socket, allow only setting of weight, not port
         raise Dalli::DalliError, "Could not parse hostname #{str}" if res[4]
