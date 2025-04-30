@@ -54,12 +54,21 @@ module Dalli
     end
 
     def lock(servers)
-      locked_servers = servers.dup # make a copy, since the argument may be mutated after locking
+      locked_servers = servers.dup.compact # make a copy, since the argument may be mutated after locking
       locked_servers.each(&:lock!)
       begin
         return yield
       ensure
         locked_servers.each(&:unlock!)
+      end
+    end
+
+    def flush_multi_responses
+      @servers.each do |s|
+        s.request(:noop)
+      rescue Dalli::NetworkError
+        # Ignore this error, as it indicates the socket is unavailable
+        # and there's no need to flush
       end
     end
 
