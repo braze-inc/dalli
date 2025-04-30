@@ -2,6 +2,8 @@
 require 'socket'
 require 'timeout'
 
+require 'dalli/pid_cache'
+
 module Dalli
   class Server
     attr_accessor :hostname
@@ -43,6 +45,15 @@ module Dalli
 
     ALLOWED_MULTI_OPS = %i[set setq delete deleteq add addq replace replaceq].freeze
 
+    # Ruby 3.2 raises IO::TimeoutError on blocking reads/writes, but
+    # it is not defined in earlier Ruby versions.
+    TIMEOUT_ERRORS =
+      if defined?(IO::TimeoutError)
+        [Timeout::Error, IO::TimeoutError]
+      else
+        [Timeout::Error]
+      end
+
     def initialize(attribs, options = {})
       @hostname, @port, @weight, @socket_type = parse_hostname(attribs)
       @fail_count = 0
@@ -81,7 +92,7 @@ module Dalli
         Dalli.logger.error "You are trying to cache a Ruby object which cannot be serialized to memcached."
         Dalli.logger.error ex.backtrace.join("\n\t")
         false
-      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, Timeout::Error
+      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, *TIMEOUT_ERRORS
         raise
       rescue => ex
         Dalli.logger.error "Unexpected exception during Dalli request: #{ex.class.name}: #{ex.message}"
@@ -190,7 +201,7 @@ module Dalli
       @position = pos
 
       values
-    rescue SystemCallError, Timeout::Error, EOFError => e
+    rescue SystemCallError, *TIMEOUT_ERRORS, EOFError => e
       failure!(e)
     end
 
@@ -214,7 +225,7 @@ module Dalli
 
     def verify_state
       failure!(RuntimeError.new('Already writing to socket')) if @inprogress
-      if @pid && @pid != Process.pid
+      if @pid && @pid != PIDCache.pid
         message = 'Fork detected, re-connecting child process...'
         Dalli.logger.info { message }
         reconnect! message
@@ -423,7 +434,7 @@ module Dalli
         marshalled = true
         begin
           self.serializer.dump(value)
-        rescue Timeout::Error => e
+        rescue *TIMEOUT_ERRORS => e
           raise e
         rescue => ex
           # Marshalling can throw several different types of generic Ruby exceptions.
@@ -570,7 +581,7 @@ module Dalli
         result = @sock.write(bytes)
         @inprogress = false
         result
-      rescue SystemCallError, Timeout::Error => e
+      rescue SystemCallError, *TIMEOUT_ERRORS => e
         failure!(e)
       end
     end
@@ -581,7 +592,7 @@ module Dalli
         data = @sock.readfull(count)
         @inprogress = false
         data
-      rescue SystemCallError, Timeout::Error, EOFError => e
+      rescue SystemCallError, *TIMEOUT_ERRORS, EOFError => e
         failure!(e)
       end
     end
@@ -594,7 +605,7 @@ module Dalli
       Dalli.logger.debug { "Dalli::Server#connect #{name}" }
 
       begin
-        @pid = Process.pid
+        @pid = PIDCache.pid
         if socket_type == :unix
           @sock = KSocket::UNIX.open(hostname, self, options)
         else
@@ -605,7 +616,7 @@ module Dalli
         up!
       rescue Dalli::DalliError # SASL auth failure
         raise
-      rescue SystemCallError, Timeout::Error, EOFError, SocketError => e
+      rescue SystemCallError, *TIMEOUT_ERRORS, EOFError, SocketError => e
         # SocketError = DNS resolution failure
         failure!(e)
       end
