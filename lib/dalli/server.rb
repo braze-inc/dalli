@@ -17,13 +17,13 @@ module Dalli
     DEFAULT_WEIGHT = 1
     DEFAULTS = {
       # seconds between trying to contact a remote server
-      :down_retry_delay => 30,
+      :down_retry_delay => 60,
       # connect/read/write timeout for socket operations
-      :socket_timeout => 1,
+      :socket_timeout => 0.5,
       # times a socket operation may fail before considering the server dead
       :socket_max_failures => 2,
       # amount of time to sleep between retries when a failure occurs
-      :socket_failure_delay => 0.1,
+      :socket_failure_delay => 0.01,
       # max size of value in bytes (default is 1 MB, can be overriden with "memcached -I <size>")
       :value_max_bytes => 1024 * 1024,
       # surpassing value_max_bytes either warns (false) or throws (true)
@@ -44,15 +44,6 @@ module Dalli
     }
 
     ALLOWED_MULTI_OPS = %i[set setq delete deleteq add addq replace replaceq].freeze
-
-    # Ruby 3.2 raises IO::TimeoutError on blocking reads/writes, but
-    # it is not defined in earlier Ruby versions.
-    TIMEOUT_ERRORS =
-      if defined?(IO::TimeoutError)
-        [Timeout::Error, IO::TimeoutError]
-      else
-        [Timeout::Error]
-      end
 
     def initialize(attribs, options = {})
       @hostname, @port, @weight, @socket_type = parse_hostname(attribs)
@@ -92,7 +83,7 @@ module Dalli
         Dalli.logger.error "You are trying to cache a Ruby object which cannot be serialized to memcached."
         Dalli.logger.error ex.backtrace.join("\n\t")
         false
-      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, *TIMEOUT_ERRORS
+      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, Timeout::Error
         raise
       rescue => ex
         Dalli.logger.error "Unexpected exception during Dalli request: #{ex.class.name}: #{ex.message}"
@@ -146,7 +137,7 @@ module Dalli
     def multi_response_start
       verify_state
       write_noop
-      @multi_buffer = +""
+      @multi_buffer = String.new('')
       @position = 0
       @inprogress = true
     end
@@ -163,7 +154,7 @@ module Dalli
     #
     # Returns a Hash of kv pairs received.
     def multi_response_nonblock
-      reconnect! 'multi_response has completed' if @multi_buffer.nil?
+      raise 'multi_response has completed' if @multi_buffer.nil?
 
       @multi_buffer << @sock.read_available
       buf = @multi_buffer
@@ -201,7 +192,7 @@ module Dalli
       @position = pos
 
       values
-    rescue SystemCallError, *TIMEOUT_ERRORS, EOFError => e
+    rescue SystemCallError, Timeout::Error, EOFError => e
       failure!(e)
     end
 
@@ -434,7 +425,7 @@ module Dalli
         marshalled = true
         begin
           self.serializer.dump(value)
-        rescue *TIMEOUT_ERRORS => e
+        rescue Timeout::Error => e
           raise e
         rescue => ex
           # Marshalling can throw several different types of generic Ruby exceptions.
@@ -581,7 +572,7 @@ module Dalli
         result = @sock.write(bytes)
         @inprogress = false
         result
-      rescue SystemCallError, *TIMEOUT_ERRORS => e
+      rescue SystemCallError, Timeout::Error => e
         failure!(e)
       end
     end
@@ -592,7 +583,7 @@ module Dalli
         data = @sock.readfull(count)
         @inprogress = false
         data
-      rescue SystemCallError, *TIMEOUT_ERRORS, EOFError => e
+      rescue SystemCallError, Timeout::Error, EOFError => e
         failure!(e)
       end
     end
@@ -616,7 +607,7 @@ module Dalli
         up!
       rescue Dalli::DalliError # SASL auth failure
         raise
-      rescue SystemCallError, *TIMEOUT_ERRORS, EOFError, SocketError => e
+      rescue SystemCallError, Timeout::Error, EOFError, SocketError => e
         # SocketError = DNS resolution failure
         failure!(e)
       end
