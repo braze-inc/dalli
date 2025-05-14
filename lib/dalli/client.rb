@@ -50,7 +50,6 @@ module Dalli
       old, Thread.current[:dalli_multi] = Thread.current[:dalli_multi], true
       yield
     ensure
-      @ring&.flush_multi_responses
       Thread.current[:dalli_multi] = old
     end
 
@@ -318,24 +317,17 @@ module Dalli
     end
 
     def perform_multi_response_start(servers)
-      deleted = []
-
       servers.each do |server|
-        next unless !server.nil? && server.alive?
-
+        next unless server.alive?
         begin
           server.multi_response_start
-        rescue Dalli::NetworkError
-          servers.each { |s| s.multi_response_abort unless s.sock.nil?  }
-          raise
-        rescue Dalli::DalliError => e
+        rescue DalliError, NetworkError => e
           Dalli.logger.debug { e.inspect }
           Dalli.logger.debug { "results from this server will be missing" }
-          deleted.append(server)
+          servers.delete(server)
         end
       end
-
-      servers.delete_if { |server| deleted.include?(server) }
+      servers
     end
 
     ##
@@ -369,13 +361,12 @@ module Dalli
 
     # Chokepoint method for instrumentation
     def perform(*all_args)
+      return yield if block_given?
+      op, key, *args = *all_args
+
+      key = key.to_s
+      key = validate_key(key)
       begin
-        return yield if block_given?
-        op, key, *args = all_args
-
-        key = key.to_s
-        key = validate_key(key)
-
         server = ring.server_for_key(key)
         ret = server.request(op, key, *args)
         ret
@@ -434,7 +425,6 @@ module Dalli
         ring.lock do
           begin
             groups = groups_for_keys(keys)
-
             if unfound_keys = groups.delete(nil)
               Dalli.logger.debug { "unable to get keys for #{unfound_keys.length} keys because no matching server was found" }
             end
@@ -447,7 +437,7 @@ module Dalli
             start = Time.now
             while true
               # remove any dead servers
-              servers.delete_if { |s| s.nil? || s.sock.nil? }
+              servers.delete_if { |s| s.sock.nil? }
               break if servers.empty?
 
               # calculate remaining timeout
@@ -479,8 +469,7 @@ module Dalli
                       servers.delete(server)
                     end
                   rescue NetworkError
-                    servers.each { |s| s.multi_response_abort unless s.sock.nil? }
-                    raise
+                    servers.delete(server)
                   end
                 end
               end
