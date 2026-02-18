@@ -83,7 +83,21 @@ module Dalli
         Dalli.logger.error "You are trying to cache a Ruby object which cannot be serialized to memcached."
         Dalli.logger.error ex.backtrace.join("\n\t")
         false
-      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, Timeout::Error
+      rescue Timeout::Error
+        # A Timeout::Error can be injected asynchronously by Thread#raise
+        # (from Timeout.timeout's watchdog thread) at ANY point in execution.
+        # If it fires between write(req) and reading the response for ANY
+        # operation (GET, SET, DELETE, etc.), the server's response remains
+        # in the socket's receive buffer. Without closing, the next operation
+        # reads those stale bytes as if they were its own response.
+        #
+        # Closing the socket discards any potentially stale data and forces
+        # a fresh connection on the next operation. This may occasionally
+        # close a clean socket (if the timeout fired at a "safe" point), but
+        # the performance cost of an extra reconnect is negligible.
+        close
+        raise
+      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize
         raise
       rescue => ex
         Dalli.logger.error "Unexpected exception during Dalli request: #{ex.class.name}: #{ex.message}"
