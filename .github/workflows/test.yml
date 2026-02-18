@@ -1,0 +1,48 @@
+name: Test Suite
+
+on:
+  push:
+    branches: [ braze-main ]
+  pull_request:
+    branches: [ braze-main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        ruby: ['3.2', '3.3']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install memcached
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y memcached libmemcached-dev
+
+    - name: Start memcached
+      run: |
+        memcached -d -p 11211
+        sleep 2
+
+    - name: Verify memcached is running
+      run: |
+        ps aux | grep memcached | grep -v grep
+        echo "version" | timeout 2 nc localhost 11211 || echo "Memcached is responding"
+
+    - name: Set up Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: ${{ matrix.ruby }}
+        bundler-cache: true
+
+    - name: Run tests
+      run: bundle exec rake test
+
+    - name: Stop memcached
+      if: always()
+      run: |
+        pkill memcached || true
