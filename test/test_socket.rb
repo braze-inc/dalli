@@ -145,45 +145,38 @@ describe 'Dalli::Socket::TCP' do
 
   it 'sets TCP_NODELAY on the socket' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'srv', socket_timeout: 5)
-
     assert @sock.getsockopt(::Socket::IPPROTO_TCP, ::Socket::TCP_NODELAY).bool
   end
 
   it 'enables SO_KEEPALIVE when keepalive option is true' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'srv', socket_timeout: 5, keepalive: true)
-
     assert @sock.getsockopt(::Socket::SOL_SOCKET, ::Socket::SO_KEEPALIVE).bool
   end
 
   it 'does not enable SO_KEEPALIVE by default' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'srv', socket_timeout: 5)
-
     refute @sock.getsockopt(::Socket::SOL_SOCKET, ::Socket::SO_KEEPALIVE).bool
   end
 
   it 'sets SO_RCVBUF when rcvbuf option is provided' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'srv', socket_timeout: 5, rcvbuf: 65536)
-
     # Kernel may round up the requested value, so assert >=
     assert_operator @sock.getsockopt(::Socket::SOL_SOCKET, ::Socket::SO_RCVBUF).int, :>=, 65536
   end
 
   it 'sets SO_SNDBUF when sndbuf option is provided' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'srv', socket_timeout: 5, sndbuf: 65536)
-
     assert_operator @sock.getsockopt(::Socket::SOL_SOCKET, ::Socket::SO_SNDBUF).int, :>=, 65536
   end
 
   it 'stores host, port, and options on the socket' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'srv', socket_timeout: 5, keepalive: true)
-
     expected = { host: '127.0.0.1', port: @port, socket_timeout: 5, keepalive: true }
     assert_equal expected, @sock.options
   end
 
   it 'assigns the server reference' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'my_server', socket_timeout: 5)
-
     assert_equal 'my_server', @sock.server
   end
 end
@@ -205,21 +198,18 @@ describe 'Dalli::Socket::UNIX' do
 
   it 'returns a connected UNIX socket' do
     @sock = Dalli::Socket::UNIX.open(@path, 'srv', socket_timeout: 5)
-
     assert_kind_of Dalli::Socket::UNIX, @sock
     refute @sock.closed?
   end
 
   it 'stores path and options on the socket' do
     @sock = Dalli::Socket::UNIX.open(@path, 'srv', socket_timeout: 5)
-
     expected = { path: @path, socket_timeout: 5 }
     assert_equal expected, @sock.options
   end
 
   it 'assigns the server reference' do
     @sock = Dalli::Socket::UNIX.open(@path, 'my_server', socket_timeout: 5)
-
     assert_equal 'my_server', @sock.server
   end
 end
