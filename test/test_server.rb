@@ -3,6 +3,8 @@ require 'ostruct'
 require_relative 'helper'
 
 describe Dalli::Server do
+  let(:server) { Dalli::Server.new('localhost') }
+
   describe 'name' do
     it 'returns hostname:port for tcp sockets' do
       s = Dalli::Server.new('localhost:11211')
@@ -15,27 +17,25 @@ describe Dalli::Server do
     end
 
     it 'uses default port in name when not specified' do
-      s = Dalli::Server.new('localhost')
-      assert_equal 'localhost:11211', s.name
+      assert_equal 'localhost:11211', server.name
     end
   end
 
   describe 'initialization defaults' do
     it 'sets default options' do
-      s = Dalli::Server.new('localhost')
-      assert_equal 60, s.options[:down_retry_delay]
-      assert_equal 0.5, s.options[:socket_timeout]
-      assert_equal 2, s.options[:socket_max_failures]
-      assert_equal 0.01, s.options[:socket_failure_delay]
-      assert_equal 1024 * 1024, s.options[:value_max_bytes]
-      assert_equal false, s.options[:error_when_over_max_size]
-      assert_equal Dalli::Compressor, s.options[:compressor]
-      assert_equal 1024, s.options[:compression_min_size]
-      assert_equal false, s.options[:compression_max_size]
-      assert_equal Marshal, s.options[:serializer]
-      assert_nil s.options[:username]
-      assert_nil s.options[:password]
-      assert_equal true, s.options[:keepalive]
+      assert_equal 60, server.options[:down_retry_delay]
+      assert_equal 0.5, server.options[:socket_timeout]
+      assert_equal 2, server.options[:socket_max_failures]
+      assert_equal 0.01, server.options[:socket_failure_delay]
+      assert_equal 1024 * 1024, server.options[:value_max_bytes]
+      assert_equal false, server.options[:error_when_over_max_size]
+      assert_equal Dalli::Compressor, server.options[:compressor]
+      assert_equal 1024, server.options[:compression_min_size]
+      assert_equal false, server.options[:compression_max_size]
+      assert_equal Marshal, server.options[:serializer]
+      assert_nil server.options[:username]
+      assert_nil server.options[:password]
+      assert_equal true, server.options[:keepalive]
     end
 
     it 'merges custom options with defaults' do
@@ -46,20 +46,17 @@ describe Dalli::Server do
     end
 
     it 'starts with nil sock' do
-      s = Dalli::Server.new('localhost')
-      assert_nil s.sock
+      assert_nil server.sock
     end
   end
 
   describe 'serializer and compressor accessors' do
     it 'returns the configured serializer' do
-      s = Dalli::Server.new('localhost')
-      assert_equal Marshal, s.serializer
+      assert_equal Marshal, server.serializer
     end
 
     it 'returns the configured compressor' do
-      s = Dalli::Server.new('localhost')
-      assert_equal Dalli::Compressor, s.compressor
+      assert_equal Dalli::Compressor, server.compressor
     end
 
     it 'returns custom serializer' do
@@ -77,32 +74,29 @@ describe Dalli::Server do
 
   describe 'close' do
     it 'is a no-op when sock is nil' do
-      s = Dalli::Server.new('localhost')
-      assert_nil s.sock
-      s.close
-      assert_nil s.sock
+      assert_nil server.sock
+      server.close
+      assert_nil server.sock
     end
 
     it 'closes the socket and resets state' do
-      s = Dalli::Server.new('localhost')
       mock_sock = mock('socket')
       mock_sock.expects(:close)
-      s.instance_variable_set(:@sock, mock_sock)
-      s.instance_variable_set(:@pid, Process.pid)
+      server.instance_variable_set(:@sock, mock_sock)
+      server.instance_variable_set(:@pid, Process.pid)
 
-      s.close
+      server.close
 
-      assert_nil s.sock
-      assert_nil s.instance_variable_get(:@pid)
-      assert_equal false, s.instance_variable_get(:@inprogress)
+      assert_nil server.sock
+      assert_nil server.instance_variable_get(:@pid)
+      assert_equal false, server.instance_variable_get(:@inprogress)
     end
   end
 
   describe 'alive?' do
     it 'returns true when sock is present' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@sock, stub('socket'))
-      assert_equal true, s.alive?
+      server.instance_variable_set(:@sock, stub('socket'))
+      assert_equal true, server.alive?
     end
 
     it 'returns false during down_retry_delay period' do
@@ -114,37 +108,33 @@ describe Dalli::Server do
     it 'attempts reconnect after down_retry_delay expires' do
       s = Dalli::Server.new('localhost:19999', down_retry_delay: 0)
       s.instance_variable_set(:@last_down_at, Time.now - 1)
-      result = s.alive?
-      assert_equal false, result
+      assert_equal false, s.alive?
     end
   end
 
   describe 'multi_response_completed?' do
     it 'returns true when multi_buffer is nil' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@multi_buffer, nil)
-      assert_equal true, s.multi_response_completed?
+      server.instance_variable_set(:@multi_buffer, nil)
+      assert_equal true, server.multi_response_completed?
     end
 
     it 'returns false when multi_buffer has content' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@multi_buffer, 'data')
-      assert_equal false, s.multi_response_completed?
+      server.instance_variable_set(:@multi_buffer, 'data')
+      assert_equal false, server.multi_response_completed?
     end
   end
 
   describe 'multi_response_abort' do
     it 'clears multi_buffer and position' do
-      s = Dalli::Server.new('localhost:19999')
-      s.instance_variable_set(:@multi_buffer, 'data')
-      s.instance_variable_set(:@position, 10)
-      s.instance_variable_set(:@inprogress, true)
+      server.instance_variable_set(:@multi_buffer, 'data')
+      server.instance_variable_set(:@position, 10)
+      server.instance_variable_set(:@inprogress, true)
 
-      s.multi_response_abort
+      server.multi_response_abort
 
-      assert_nil s.instance_variable_get(:@multi_buffer)
-      assert_nil s.instance_variable_get(:@position)
-      assert_equal false, s.instance_variable_get(:@inprogress)
+      assert_nil server.instance_variable_get(:@multi_buffer)
+      assert_nil server.instance_variable_get(:@position)
+      assert_equal false, server.instance_variable_get(:@inprogress)
     end
   end
 
@@ -152,31 +142,31 @@ describe Dalli::Server do
     it 'closes socket on Timeout::Error and re-raises' do
       memcached_persistent do |dc|
         ring = dc.send(:ring)
-        server = ring.servers.first
-        assert server.alive?
+        s = ring.servers.first
+        assert s.alive?
 
-        server.stubs(:verify_state)
-        server.stubs(:get).raises(Timeout::Error.new('IO timeout'))
+        s.stubs(:verify_state)
+        s.stubs(:get).raises(Timeout::Error.new('IO timeout'))
 
         assert_raises Timeout::Error do
-          server.request(:get, 'key')
+          s.request(:get, 'key')
         end
 
-        assert_nil server.sock
+        assert_nil s.sock
       end
     end
 
     it 'returns false on MarshalError' do
       memcached_persistent do |dc|
         ring = dc.send(:ring)
-        server = ring.servers.first
-        assert server.alive?
+        s = ring.servers.first
+        assert s.alive?
 
-        server.stubs(:verify_state)
-        server.stubs(:set).raises(Dalli::MarshalError.new('cannot dump'))
+        s.stubs(:verify_state)
+        s.stubs(:set).raises(Dalli::MarshalError.new('cannot dump'))
 
         with_nil_logger do
-          result = server.request(:set, 'key', 'value')
+          result = s.request(:set, 'key', 'value')
           assert_equal false, result
         end
       end
@@ -286,38 +276,34 @@ describe Dalli::Server do
 
   describe 'verify_state' do
     it 'raises NetworkError when inprogress is true' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@inprogress, true)
+      server.instance_variable_set(:@inprogress, true)
       assert_raises Dalli::NetworkError do
-        s.send(:verify_state)
+        server.send(:verify_state)
       end
     end
 
     it 'does nothing when state is clean' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@inprogress, false)
-      s.instance_variable_set(:@pid, nil)
-      s.send(:verify_state)
+      server.instance_variable_set(:@inprogress, false)
+      server.instance_variable_set(:@pid, nil)
+      server.send(:verify_state)
     end
 
     it 'reconnects when pid changes (fork detection)' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@pid, -1)
-      s.instance_variable_set(:@inprogress, false)
+      server.instance_variable_set(:@pid, -1)
+      server.instance_variable_set(:@inprogress, false)
       assert_raises Dalli::NetworkError do
-        s.send(:verify_state)
+        server.send(:verify_state)
       end
     end
   end
 
   describe 'failure!' do
     it 'reconnects when fail_count is below max' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@fail_count, 0)
+      server.instance_variable_set(:@fail_count, 0)
       assert_raises Dalli::NetworkError do
-        s.send(:failure!, RuntimeError.new('test'))
+        server.send(:failure!, RuntimeError.new('test'))
       end
-      assert_equal 1, s.instance_variable_get(:@fail_count)
+      assert_equal 1, server.instance_variable_get(:@fail_count)
     end
 
     it 'marks server as down when fail_count reaches max' do
@@ -331,65 +317,60 @@ describe Dalli::Server do
 
   describe 'down! and up!' do
     it 'down! sets last_down_at and raises NetworkError' do
-      s = Dalli::Server.new('localhost')
       assert_raises Dalli::NetworkError do
-        s.send(:down!)
+        server.send(:down!)
       end
-      refute_nil s.instance_variable_get(:@last_down_at)
-      refute_nil s.instance_variable_get(:@down_at)
+      refute_nil server.instance_variable_get(:@last_down_at)
+      refute_nil server.instance_variable_get(:@down_at)
     end
 
     it 'up! clears failure state' do
-      s = Dalli::Server.new('localhost')
-      s.instance_variable_set(:@fail_count, 5)
-      s.instance_variable_set(:@down_at, Time.now)
-      s.instance_variable_set(:@last_down_at, Time.now)
-      s.instance_variable_set(:@msg, 'error')
-      s.instance_variable_set(:@error, 'RuntimeError')
+      server.instance_variable_set(:@fail_count, 5)
+      server.instance_variable_set(:@down_at, Time.now)
+      server.instance_variable_set(:@last_down_at, Time.now)
+      server.instance_variable_set(:@msg, 'error')
+      server.instance_variable_set(:@error, 'RuntimeError')
 
-      s.send(:up!)
+      server.send(:up!)
 
-      assert_equal 0, s.instance_variable_get(:@fail_count)
-      assert_nil s.instance_variable_get(:@down_at)
-      assert_nil s.instance_variable_get(:@last_down_at)
-      assert_nil s.instance_variable_get(:@msg)
-      assert_nil s.instance_variable_get(:@error)
+      assert_equal 0, server.instance_variable_get(:@fail_count)
+      assert_nil server.instance_variable_get(:@down_at)
+      assert_nil server.instance_variable_get(:@last_down_at)
+      assert_nil server.instance_variable_get(:@msg)
+      assert_nil server.instance_variable_get(:@error)
     end
   end
 
   describe 'multi?' do
-    it 'returns true when Thread.current[:dalli_multi] is set' do
-      s = Dalli::Server.new('localhost')
-      Thread.current[:dalli_multi] = true
-      assert_equal true, s.send(:multi?)
+    after do
       Thread.current[:dalli_multi] = nil
     end
 
+    it 'returns true when Thread.current[:dalli_multi] is set' do
+      Thread.current[:dalli_multi] = true
+      assert_equal true, server.send(:multi?)
+    end
+
     it 'returns nil when not in multi block' do
-      s = Dalli::Server.new('localhost')
-      Thread.current[:dalli_multi] = nil
-      assert_nil s.send(:multi?)
+      assert_nil server.send(:multi?)
     end
   end
 
   describe 'split' do
     it 'splits 64-bit integers into high and low 32-bit parts' do
-      s = Dalli::Server.new('localhost')
-      h, l = s.send(:split, 0x100000001)
+      h, l = server.send(:split, 0x100000001)
       assert_equal 1, h
       assert_equal 1, l
     end
 
     it 'handles zero' do
-      s = Dalli::Server.new('localhost')
-      h, l = s.send(:split, 0)
+      h, l = server.send(:split, 0)
       assert_equal 0, h
       assert_equal 0, l
     end
 
     it 'handles max 32-bit value' do
-      s = Dalli::Server.new('localhost')
-      h, l = s.send(:split, 0xFFFFFFFF)
+      h, l = server.send(:split, 0xFFFFFFFF)
       assert_equal 0, h
       assert_equal 0xFFFFFFFF, l
     end
@@ -404,8 +385,7 @@ describe Dalli::Server do
     it 'returns falsey when no credentials configured' do
       old_user = ENV['MEMCACHE_USERNAME']
       ENV['MEMCACHE_USERNAME'] = nil
-      s = Dalli::Server.new('localhost')
-      refute s.send(:need_auth?)
+      refute server.send(:need_auth?)
     ensure
       ENV['MEMCACHE_USERNAME'] = old_user
     end
@@ -457,11 +437,10 @@ describe Dalli::Server do
     end
 
     it 'handles no port or weight' do
-      s = Dalli::Server.new('localhost')
-      assert_equal 'localhost', s.hostname
-      assert_equal 11211, s.port
-      assert_equal 1, s.weight
-      assert_equal :tcp, s.socket_type
+      assert_equal 'localhost', server.hostname
+      assert_equal 11211, server.port
+      assert_equal 1, server.weight
+      assert_equal :tcp, server.socket_type
     end
 
     it 'handles a port, but no weight' do
@@ -538,29 +517,25 @@ describe Dalli::Server do
 
   describe 'ttl translation' do
     it 'does not translate ttls under 30 days' do
-      s = Dalli::Server.new('localhost')
-      assert_equal s.send(:sanitize_ttl, 30*24*60*60), 30*24*60*60
+      assert_equal 30*24*60*60, server.send(:sanitize_ttl, 30*24*60*60)
     end
 
     it 'translates ttls over 30 days into timestamps' do
-      s = Dalli::Server.new('localhost')
-      assert_equal s.send(:sanitize_ttl, 30*24*60*60 + 1), Time.now.to_i + 30*24*60*60+1
+      assert_equal Time.now.to_i + 30*24*60*60+1, server.send(:sanitize_ttl, 30*24*60*60 + 1)
     end
 
     it 'does not translate ttls which are already timestamps' do
-      s = Dalli::Server.new('localhost')
       timestamp_ttl = Time.now.to_i + 60
-      assert_equal s.send(:sanitize_ttl, timestamp_ttl), timestamp_ttl
+      assert_equal timestamp_ttl, server.send(:sanitize_ttl, timestamp_ttl)
     end
   end
 
   describe 'guard_max_value' do
     it 'yields when size is under max' do
-      s = Dalli::Server.new('127.0.0.1')
       value = OpenStruct.new(:bytesize => 1_048_576)
 
       yielded = false
-      s.send(:guard_max_value, :foo, value) do
+      server.send(:guard_max_value, :foo, value) do
         yielded = true
       end
 
@@ -568,12 +543,11 @@ describe Dalli::Server do
     end
 
     it 'warns when size is over max' do
-      s = Dalli::Server.new('127.0.0.1')
       value = OpenStruct.new(:bytesize => 1_048_577)
 
       Dalli.logger.expects(:error).once.with("Value for foo over max size: 1048576 <= 1048577 - this value may be truncated by memcached")
 
-      s.send(:guard_max_value, :foo, value)
+      server.send(:guard_max_value, :foo, value)
     end
 
     it 'throws when size is over max and error_over_max_size true' do

@@ -138,8 +138,9 @@ describe 'Dalli' do
   end
 
   describe 'multi block' do
+    let(:dc) { Dalli::Client.new('localhost:11211') }
+
     it 'sets and restores Thread.current[:dalli_multi]' do
-      dc = Dalli::Client.new('localhost:11211')
       assert_nil Thread.current[:dalli_multi]
       dc.multi do
         assert_equal true, Thread.current[:dalli_multi]
@@ -148,7 +149,6 @@ describe 'Dalli' do
     end
 
     it 'restores previous multi state on nested calls' do
-      dc = Dalli::Client.new('localhost:11211')
       dc.multi do
         assert_equal true, Thread.current[:dalli_multi]
         dc.multi do
@@ -160,7 +160,6 @@ describe 'Dalli' do
     end
 
     it 'restores state even when block raises' do
-      dc = Dalli::Client.new('localhost:11211')
       begin
         dc.multi do
           raise RuntimeError, 'boom'
@@ -172,23 +171,24 @@ describe 'Dalli' do
   end
 
   describe '#with' do
+    let(:dc) { Dalli::Client.new('localhost:11211') }
+
     it 'yields self' do
-      dc = Dalli::Client.new('localhost:11211')
       dc.with do |client|
         assert_same dc, client
       end
     end
 
     it 'returns block result' do
-      dc = Dalli::Client.new('localhost:11211')
       result = dc.with { |c| 42 }
       assert_equal 42, result
     end
   end
 
   describe '#close and #reset' do
+    let(:dc) { Dalli::Client.new('localhost:11211') }
+
     it 'close resets the ring to nil' do
-      dc = Dalli::Client.new('localhost:11211')
       dc.send(:ring)
       refute_nil dc.instance_variable_get(:@ring)
       dc.close
@@ -196,36 +196,42 @@ describe 'Dalli' do
     end
 
     it 'reset is an alias for close' do
-      dc = Dalli::Client.new('localhost:11211')
       assert_equal dc.method(:close), dc.method(:reset)
     end
 
     it 'close is safe when ring is nil' do
-      dc = Dalli::Client.new('localhost:11211')
       dc.close
       dc.close
     end
   end
 
   describe 'key helpers' do
-    it 'key_with_namespace prepends namespace' do
-      dc = Dalli::Client.new('localhost:11211', namespace: 'ns')
-      assert_equal 'ns:mykey', dc.send(:key_with_namespace, 'mykey')
+    describe 'with namespace' do
+      let(:dc) { Dalli::Client.new('localhost:11211', namespace: 'ns') }
+
+      it 'key_with_namespace prepends namespace' do
+        assert_equal 'ns:mykey', dc.send(:key_with_namespace, 'mykey')
+      end
+
+      it 'key_without_namespace strips namespace prefix' do
+        assert_equal 'mykey', dc.send(:key_without_namespace, 'ns:mykey')
+      end
     end
 
-    it 'key_with_namespace returns key when no namespace' do
-      dc = Dalli::Client.new('localhost:11211')
-      assert_equal 'mykey', dc.send(:key_with_namespace, 'mykey')
-    end
+    describe 'without namespace' do
+      let(:dc) { Dalli::Client.new('localhost:11211') }
 
-    it 'key_without_namespace strips namespace prefix' do
-      dc = Dalli::Client.new('localhost:11211', namespace: 'ns')
-      assert_equal 'mykey', dc.send(:key_without_namespace, 'ns:mykey')
-    end
+      it 'key_with_namespace returns key as-is' do
+        assert_equal 'mykey', dc.send(:key_with_namespace, 'mykey')
+      end
 
-    it 'key_without_namespace returns key when no namespace' do
-      dc = Dalli::Client.new('localhost:11211')
-      assert_equal 'mykey', dc.send(:key_without_namespace, 'mykey')
+      it 'key_without_namespace returns key as-is' do
+        assert_equal 'mykey', dc.send(:key_without_namespace, 'mykey')
+      end
+
+      it 'namespace returns nil' do
+        assert_nil dc.send(:namespace)
+      end
     end
 
     it 'namespace returns string for symbol namespace' do
@@ -239,16 +245,12 @@ describe 'Dalli' do
       assert_equal 'dynamic', dc.send(:namespace)
       assert_equal 1, call_count
     end
-
-    it 'namespace returns nil when not configured' do
-      dc = Dalli::Client.new('localhost:11211')
-      assert_nil dc.send(:namespace)
-    end
   end
 
   describe 'ttl_or_default' do
+    let(:dc) { Dalli::Client.new('localhost:11211') }
+
     it 'returns the given ttl as integer' do
-      dc = Dalli::Client.new('localhost:11211')
       assert_equal 300, dc.send(:ttl_or_default, 300)
     end
 
@@ -258,12 +260,10 @@ describe 'Dalli' do
     end
 
     it 'returns 0 when both ttl and expires_in are nil' do
-      dc = Dalli::Client.new('localhost:11211')
       assert_equal 0, dc.send(:ttl_or_default, nil)
     end
 
     it 'raises ArgumentError for unconvertible ttl' do
-      dc = Dalli::Client.new('localhost:11211')
       assert_raises ArgumentError do
         dc.send(:ttl_or_default, [])
       end
@@ -285,8 +285,9 @@ describe 'Dalli' do
   end
 
   describe 'validate_key' do
+    let(:dc) { Dalli::Client.new('localhost:11211') }
+
     it 'truncates keys longer than 250 chars with md5 hash' do
-      dc = Dalli::Client.new('localhost:11211')
       long_key = 'x' * 300
       result = dc.send(:validate_key, long_key)
       assert_operator result.length, :<=, 250
