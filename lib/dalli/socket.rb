@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'resolv'
+
 module Dalli
   module Socket
     module InstanceMethods
@@ -64,8 +66,7 @@ module Dalli
       attr_accessor :options, :server
 
       def self.open(host, port, server, options = {})
-        addr_info = ::Socket.getaddrinfo(host, nil, ::Socket::AF_UNSPEC, ::Socket::SOCK_STREAM)
-        ai = addr_info.first
+        ai = resolve_address(host, options[:socket_timeout])
         sock = new(ai[4], ::Socket::SOCK_STREAM, 0)
 
         sock.setsockopt(::Socket::IPPROTO_TCP, ::Socket::TCP_NODELAY, true)
@@ -93,6 +94,36 @@ module Dalli
         sock&.close rescue nil
         raise
       end
+
+      # Resolve a hostname to structured address info with timeout protection.
+      # getaddrinfo(3) is a blocking C library call that can block indefinitely
+      # on unresponsive DNS. For IP addresses (the common case with memcached),
+      # getaddrinfo returns immediately without DNS and is safe to call directly.
+      # For hostnames, we use Ruby's Resolv library which is pure Ruby and
+      # supports timeouts, then pass the resolved IP to getaddrinfo for the
+      # structured address info the caller expects.
+      def self.resolve_address(host, timeout)
+        if ip_address?(host)
+          return ::Socket.getaddrinfo(host, nil, ::Socket::AF_UNSPEC, ::Socket::SOCK_STREAM).first
+        end
+
+        dns = Resolv::DNS.new
+        dns.timeouts = timeout
+        resolver = Resolv.new([Resolv::Hosts.new, dns])
+        resolved_ip = resolver.getaddress(host).to_s
+        ::Socket.getaddrinfo(resolved_ip, nil, ::Socket::AF_UNSPEC, ::Socket::SOCK_STREAM).first
+      rescue Resolv::ResolvError => e
+        raise SocketError, "getaddrinfo: Name or service not known - #{host} (#{e.message})"
+      ensure
+        dns&.close
+      end
+      private_class_method :resolve_address
+
+      # Returns true if host is an IP address (v4 or v6) rather than a hostname.
+      def self.ip_address?(host)
+        host.match?(/\A\d{1,3}(\.\d{1,3}){3}\z/) || host.include?(':')
+      end
+      private_class_method :ip_address?
     end
 
     class UNIX < ::Socket
