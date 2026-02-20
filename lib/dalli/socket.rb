@@ -66,15 +66,15 @@ module Dalli
       attr_accessor :options, :server
 
       def self.open(host, port, server, options = {})
-        ai = resolve_address(host, options[:socket_timeout])
-        sock = new(ai[4], ::Socket::SOCK_STREAM, 0)
+        addr_info = resolve_address(host, options[:socket_timeout])
+        sock = new(addr_info[4], ::Socket::SOCK_STREAM, 0) # addr_info[4] == address family constant (e.g. AF_INET), expressed as an integer
 
         sock.setsockopt(::Socket::IPPROTO_TCP, ::Socket::TCP_NODELAY, true)
         sock.setsockopt(::Socket::SOL_SOCKET, ::Socket::SO_KEEPALIVE, true) if options[:keepalive]
         sock.setsockopt(::Socket::SOL_SOCKET, ::Socket::SO_RCVBUF, options[:rcvbuf]) if options[:rcvbuf]
         sock.setsockopt(::Socket::SOL_SOCKET, ::Socket::SO_SNDBUF, options[:sndbuf]) if options[:sndbuf]
 
-        sockaddr = ::Socket.pack_sockaddr_in(port, ai[3])
+        sockaddr = ::Socket.pack_sockaddr_in(port, addr_info[3]) # addr_info[3] == IP address string (e.g. "192.168.1.1")
         result = sock.connect_nonblock(sockaddr, exception: false)
         if result == :wait_writable
           unless IO.select(nil, [sock], nil, options[:socket_timeout])
