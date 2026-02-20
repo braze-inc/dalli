@@ -121,7 +121,7 @@ module Dalli
 
       # Returns true if host is an IP address (v4 or v6) rather than a hostname.
       def self.ip_address?(host)
-        host.match?(/\A\d{1,3}(\.\d{1,3}){3}\z/) || host.include?(':')
+        host.match?(Resolv::IPv4::Regex) || host.include?(':')
       end
       private_class_method :ip_address?
     end
