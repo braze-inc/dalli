@@ -69,9 +69,9 @@ module Dalli
 
     # Chokepoint method for instrumentation
     def request(op, *args)
-      begin
       verify_state
       raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
+      begin
         # if we have exited a multi block, flush any responses that might still be pending
         if @pending_multi_response && (!multi? || !ALLOWED_MULTI_OPS.include?(op))
           noop
