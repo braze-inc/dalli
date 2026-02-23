@@ -423,6 +423,7 @@ module Dalli
       perform do
         return {} if keys.empty?
         ring.lock do
+          groups = {}
           begin
             groups = groups_for_keys(keys)
             if unfound_keys = groups.delete(nil)
@@ -474,6 +475,9 @@ module Dalli
                 end
               end
             end
+          rescue Timeout::Error
+            groups.each_key(&:close)
+            raise
           end
         end
       end

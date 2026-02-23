@@ -156,6 +156,23 @@ describe Dalli::Server do
       end
     end
 
+    it 'closes socket on Timeout::Error raised before the operation begins' do
+      memcached_persistent do |dc|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+        refute_nil s.sock
+
+        s.stubs(:alive?).raises(Timeout::Error.new('late timeout'))
+
+        assert_raises Timeout::Error do
+          s.request(:get, 'key')
+        end
+
+        assert_nil s.sock
+      end
+    end
+
     it 'returns false on MarshalError' do
       memcached_persistent do |dc|
         ring = dc.send(:ring)
