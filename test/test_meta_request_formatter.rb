@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require_relative 'helper'
+require 'dalli/protocol/meta'
 
 describe 'Dalli::Protocol::Meta::RequestFormatter' do
   let(:fmt) { Dalli::Protocol::Meta::RequestFormatter }

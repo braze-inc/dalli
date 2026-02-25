@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require_relative 'helper'
+require 'dalli/protocol/meta'
 
 describe 'Dalli::Protocol::Meta::ResponseProcessor' do
   # A minimal mock server that provides sock and deserialize for ResponseProcessor

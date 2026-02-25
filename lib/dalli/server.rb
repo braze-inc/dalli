@@ -90,6 +90,28 @@ module Dalli
 
     private
 
+    def write(bytes)
+      begin
+        @inprogress = true
+        result = @sock.write(bytes)
+        @inprogress = false
+        result
+      rescue SystemCallError, Timeout::Error => e
+        failure!(e)
+      end
+    end
+
+    def read(count)
+      begin
+        @inprogress = true
+        data = @sock.readfull(count)
+        @inprogress = false
+        data
+      rescue SystemCallError, Timeout::Error, EOFError => e
+        failure!(e)
+      end
+    end
+
     def get(key, options=nil)
       req = [REQUEST, OPCODES[:get], key.bytesize, 0, 0, 0, key.bytesize, 0, 0, key].pack(FORMAT[:get])
       write(req)

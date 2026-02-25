@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require_relative 'helper'
+require 'dalli/protocol/meta'
 
 describe 'Dalli Meta Protocol' do
   # Use a dedicated port range for meta protocol tests

@@ -361,7 +361,12 @@ module Dalli
     end
 
     def protocol_class
-      @options[:protocol] == :meta ? Dalli::Protocol::Meta : Dalli::Server
+      if @options[:protocol] == :meta
+        require 'dalli/protocol/meta'
+        Dalli::Protocol::Meta
+      else
+        Dalli::Server
+      end
     end
 
     # Chokepoint method for instrumentation

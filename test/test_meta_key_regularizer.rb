@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 require_relative 'helper'
+require 'dalli/protocol/meta'
 
 describe 'Dalli::Protocol::Meta::KeyRegularizer' do
   let(:kr) { Dalli::Protocol::Meta::KeyRegularizer }
