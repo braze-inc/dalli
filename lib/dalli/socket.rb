@@ -38,6 +38,53 @@ module Dalli
         value
       end
 
+      # Read a single \r\n-terminated line from the socket. Uses an internal
+      # buffer so that bytes read past the line boundary are preserved for
+      # subsequent read_line or read_from_buffer calls.
+      def read_line
+        @read_buffer ||= +""
+        loop do
+          if (idx = @read_buffer.index("\r\n"))
+            return @read_buffer.slice!(0, idx + 2)
+          end
+          result = read_nonblock(8196, exception: false)
+          case result
+          when :wait_readable
+            raise Timeout::Error, "IO timeout: #{safe_options.inspect}" unless IO.select([self], nil, nil, options[:socket_timeout])
+          when :wait_writable
+            raise Timeout::Error, "IO timeout: #{safe_options.inspect}" unless IO.select(nil, [self], nil, options[:socket_timeout])
+          when nil
+            raise Errno::ECONNRESET, "Connection reset: #{safe_options.inspect}"
+          else
+            @read_buffer << result
+          end
+        end
+      end
+
+      # Read exactly +count+ bytes from the socket, consuming from the
+      # internal read buffer first (populated by read_line overshoots).
+      def read_from_buffer(count)
+        @read_buffer ||= +""
+        while @read_buffer.bytesize < count
+          result = read_nonblock([count - @read_buffer.bytesize, 8196].max, exception: false)
+          case result
+          when :wait_readable
+            raise Timeout::Error, "IO timeout: #{safe_options.inspect}" unless IO.select([self], nil, nil, options[:socket_timeout])
+          when :wait_writable
+            raise Timeout::Error, "IO timeout: #{safe_options.inspect}" unless IO.select(nil, [self], nil, options[:socket_timeout])
+          when nil
+            raise Errno::ECONNRESET, "Connection reset: #{safe_options.inspect}"
+          else
+            @read_buffer << result
+          end
+        end
+        @read_buffer.slice!(0, count)
+      end
+
+      def clear_read_buffer
+        @read_buffer = nil
+      end
+
       def safe_options
         options.reject { |k, v| [:username, :password].include? k }
       end
