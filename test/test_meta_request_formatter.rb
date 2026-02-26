@@ -63,12 +63,12 @@ describe 'Dalli::Protocol::Meta::RequestFormatter' do
 
     it 'includes CAS value when provided' do
       result = fmt.meta_set(key: 'mykey', value: 'hi', bitflags: 0, cas: 42, ttl: 60, mode: :set)
-      assert_equal "ms mykey 2 c F0 C42 T60 MS\r\n", result
+      assert_equal "ms mykey 2 c C42 T60 MS\r\n", result
     end
 
     it 'omits CAS when zero' do
       result = fmt.meta_set(key: 'mykey', value: 'hi', bitflags: 0, cas: 0, ttl: 60, mode: :set)
-      assert_equal "ms mykey 2 c F0 T60 MS\r\n", result
+      assert_equal "ms mykey 2 c T60 MS\r\n", result
     end
 
     it 'includes quiet flag' do

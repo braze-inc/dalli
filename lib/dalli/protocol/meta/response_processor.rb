@@ -25,114 +25,148 @@ module Dalli
         end
 
         def meta_get_with_value(cache_nils: false)
-          tokens = error_on_unexpected!([VA, EN, HD])
-          return cache_nils ? Dalli::Protocol::Base::NOT_FOUND : nil if tokens.first == EN
-          return true unless tokens.first == VA
+          line = read_line
+          return cache_nils ? Dalli::Protocol::Base::NOT_FOUND : nil if line.start_with?(EN)
+          return true if line.start_with?(HD)
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(VA)
 
-          bitflags = bitflags_from_tokens(tokens)
-          @server.deserialize(read_data(tokens[1].to_i), bitflags || 0)
+          sp1 = 3
+          sp2 = line.index(' ', sp1) || line.length
+          data_size = line.byteslice(sp1, sp2 - sp1).to_i
+          bitflags = extract_flag_value(line, 'f', sp2) || 0
+          @server.deserialize(read_data(data_size), bitflags)
         end
 
         def meta_get_with_value_and_cas
-          tokens = error_on_unexpected!([VA, EN, HD])
-          return [nil, 0] if tokens.first == EN
+          line = read_line
+          return [nil, 0] if line.start_with?(EN)
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(VA) || line.start_with?(HD)
 
-          cas = cas_from_tokens(tokens)
-          return [nil, cas] unless tokens.first == VA
+          cas = extract_flag_value(line, 'c', 2) || 0
+          return [nil, cas] unless line.start_with?(VA)
 
-          bitflags = bitflags_from_tokens(tokens)
-          [@server.deserialize(read_data(tokens[1].to_i), bitflags || 0), cas]
+          sp1 = 3
+          sp2 = line.index(' ', sp1) || line.length
+          data_size = line.byteslice(sp1, sp2 - sp1).to_i
+          bitflags = extract_flag_value(line, 'f', sp2) || 0
+          [@server.deserialize(read_data(data_size), bitflags), cas]
         end
 
         def meta_get_without_value
-          tokens = error_on_unexpected!([EN, HD])
-          tokens.first == EN ? nil : true
+          line = read_line
+          return nil if line.start_with?(EN)
+          return true if line.start_with?(HD)
+          raise Dalli::DalliError, "Response error: #{line}"
         end
 
         def meta_set_with_cas
-          tokens = error_on_unexpected!([HD, NS, NF, EX])
-          return false unless tokens.first == HD
+          line = read_line
+          return false unless line.start_with?(HD)
 
-          cas_from_tokens(tokens)
+          extract_flag_value(line, 'c', 2) || 0
         end
 
         def meta_set_append_prepend
-          tokens = error_on_unexpected!([HD, NS, NF, EX])
-          return false unless tokens.first == HD
-
-          true
+          line = read_line
+          line.start_with?(HD)
         end
 
         def meta_delete
-          tokens = error_on_unexpected!([HD, NF, EX])
-          tokens.first == HD
+          line = read_line
+          line.start_with?(HD)
         end
 
         def decr_incr
-          tokens = error_on_unexpected!([VA, NF, NS, EX])
-          return false if [NS, EX].include?(tokens.first)
-          return nil if tokens.first == NF
+          line = read_line
+          return false if line.start_with?(NS) || line.start_with?(EX)
+          return nil if line.start_with?(NF)
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(VA)
 
           read_line.to_i
         end
 
         def stats
-          tokens = error_on_unexpected!([END_TOKEN, STAT])
+          line = read_line
           values = {}
-          while tokens.first != END_TOKEN
-            values[tokens[1]] = tokens[2]
-            tokens = next_line_to_tokens
+          while !line.start_with?(END_TOKEN)
+            raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(STAT)
+            parts = line.split(nil, 3)
+            values[parts[1]] = parts[2]
+            line = read_line
           end
           values
         end
 
         def flush
-          error_on_unexpected!([OK])
+          line = read_line
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(OK)
           true
         end
 
         def reset
-          error_on_unexpected!([RESET])
+          line = read_line
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(RESET)
           true
         end
 
         def version
-          tokens = error_on_unexpected!([VERSION])
-          tokens.last
+          line = read_line
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(VERSION)
+          line.split(nil, 2).last
         end
 
         def consume_all_responses_until_mn
-          tokens = next_line_to_tokens
-          tokens = next_line_to_tokens while tokens.first != MN
+          line = read_line
+          line = read_line while !line.start_with?(MN)
           true
         end
 
-        # Parse a single getk-style response from the multi-get buffer.
-        # Returns [status, cas, key, value] or nil components when incomplete.
-        def getk_response_from_buffer(buf)
-          return [0, nil, nil, nil, nil] unless buf.include?(TERMINATOR)
+        # Parse a single getk-style response from the buffer starting at pos.
+        # Returns [advance, is_terminal, cas, key, value] where advance is
+        # bytes consumed (0 if incomplete).
+        def getk_response_from_buffer(buf, pos = 0)
+          term_idx = buf.index(TERMINATOR, pos)
+          return [0, nil, nil, nil, nil] unless term_idx
 
-          header = buf.split(TERMINATOR, 2).first
-          tokens = header.split
-          header_len = header.bytesize + TERMINATOR.length
+          first_byte = buf.getbyte(pos)
 
-          if tokens.first == MN
-            return [header_len, true, nil, nil, nil]
+          if first_byte == 77 # 'M' (MN - pipeline complete)
+            return [term_idx + 2 - pos, true, nil, nil, nil]
           end
 
-          unless tokens.first == VA
-            return [header_len, false, nil, nil, nil]
+          unless first_byte == 86 # 'V' (VA - value response)
+            return [term_idx + 2 - pos, false, nil, nil, nil]
           end
 
-          body_len = tokens[1].to_i
-          resp_size = header_len + body_len + TERMINATOR.length
+          sp1 = pos + 3
+          sp2 = buf.index(' ', sp1) || term_idx
+          body_len = buf.byteslice(sp1, sp2 - sp1).to_i
 
-          return [0, nil, nil, nil, nil] unless buf.bytesize >= resp_size
+          header_len = term_idx + 2 - pos
+          resp_size = header_len + body_len + 2
+          return [0, nil, nil, nil, nil] unless buf.bytesize >= pos + resp_size
 
-          body = buf.slice(header_len, body_len)
-          key = key_from_tokens(tokens)
-          cas = cas_from_tokens(tokens)
-          bitflags = bitflags_from_tokens(tokens) || 0
+          body = buf.byteslice(term_idx + 2, body_len)
+
+          key = nil
+          cas = 0
+          bitflags = 0
+          base64 = false
+          scan = sp2
+          while scan < term_idx
+            scan += 1
+            flag_byte = buf.getbyte(scan)
+            next_sp = buf.index(' ', scan + 1) || term_idx
+            case flag_byte
+            when 107 then key = buf.byteslice(scan + 1, next_sp - scan - 1) # 'k'
+            when 99  then cas = buf.byteslice(scan + 1, next_sp - scan - 1).to_i # 'c'
+            when 102 then bitflags = buf.byteslice(scan + 1, next_sp - scan - 1).to_i # 'f'
+            when 98  then base64 = true # 'b'
+            end
+            scan = next_sp
+          end
+
+          key = KeyRegularizer.decode(key, true) if key && base64
           value = @server.deserialize(body, bitflags)
 
           [resp_size, false, cas, key, value]
@@ -140,44 +174,22 @@ module Dalli
 
         private
 
-        def error_on_unexpected!(expected_codes)
-          tokens = next_line_to_tokens
-          return tokens if expected_codes.include?(tokens.first)
+        # Extract a flag value from a response line by scanning for " <flag><value>"
+        # without splitting the entire line into tokens.
+        def extract_flag_value(line, flag_char, start_pos)
+          search = " #{flag_char}"
+          idx = line.index(search, start_pos)
+          return nil unless idx
 
-          raise Dalli::DalliError, "Response error: #{tokens.join(' ')}" if tokens.first == SERVER_ERROR
-          raise Dalli::DalliError, "Response error: #{tokens.first}"
-        end
+          val_start = idx + 2
+          val_end = line.index(' ', val_start) || line.length
+          return nil if val_start == val_end
 
-        def bitflags_from_tokens(tokens)
-          value_from_tokens(tokens, 'f')&.to_i
-        end
-
-        def cas_from_tokens(tokens)
-          value_from_tokens(tokens, 'c')&.to_i
-        end
-
-        def key_from_tokens(tokens)
-          encoded_key = value_from_tokens(tokens, 'k')
-          return nil unless encoded_key
-
-          base64_encoded = tokens.any?('b')
-          KeyRegularizer.decode(encoded_key, base64_encoded)
-        end
-
-        def value_from_tokens(tokens, flag)
-          token = tokens.find { |t| t.start_with?(flag) && t.length > 1 }
-          return nil unless token
-
-          token[1..]
+          line.byteslice(val_start, val_end - val_start).to_i
         end
 
         def read_line
           @server.sock.read_line&.chomp!(TERMINATOR)
-        end
-
-        def next_line_to_tokens
-          line = read_line
-          line&.split || []
         end
 
         def read_data(data_size)

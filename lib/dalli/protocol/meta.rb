@@ -21,6 +21,7 @@ module Dalli
         verify_state
         write_noop
         @multi_buffer = +''
+        @multi_position = 0
         @inprogress = true
       end
 
@@ -38,15 +39,17 @@ module Dalli
 
         @multi_buffer << @sock.read_available
         buf = @multi_buffer
+        pos = @multi_position
         values = {}
 
         loop do
-          advance, is_terminal, cas, key, value = response_processor.getk_response_from_buffer(buf)
+          advance, is_terminal, cas, key, value = response_processor.getk_response_from_buffer(buf, pos)
 
           if advance.zero?
             break
           elsif is_terminal && key.nil?
             @multi_buffer = nil
+            @multi_position = nil
             @inprogress = false
             break
           elsif key
@@ -56,10 +59,10 @@ module Dalli
             end
           end
 
-          buf = buf.byteslice(advance..-1)
+          pos += advance
         end
 
-        @multi_buffer = buf if @multi_buffer
+        @multi_position = pos if @multi_buffer
         values
       rescue SystemCallError, Timeout::Error, EOFError => e
         failure!(e)
@@ -67,6 +70,7 @@ module Dalli
 
       def multi_response_abort
         @multi_buffer = nil
+        @multi_position = nil
         @inprogress = false
         failure!(RuntimeError.new('External timeout'))
       rescue NetworkError
@@ -206,9 +210,8 @@ module Dalli
             key: encoded_key, value: value, bitflags: bitflags,
             cas: cas, ttl: ttl, mode: mode, base64: base64, quiet: multi?
           )
+          req << value << TERMINATOR
           write(req)
-          write(value)
-          write(TERMINATOR)
         end
       end
 
@@ -218,9 +221,8 @@ module Dalli
           key: encoded_key, value: value, base64: base64,
           mode: mode, quiet: multi?
         )
+        req << value << TERMINATOR
         write(req)
-        write(value)
-        write(TERMINATOR)
       end
 
       def decr_incr(incr, key, delta, ttl, initial)
@@ -238,6 +240,28 @@ module Dalli
           raise Dalli::DalliError, "Meta protocol does not support SASL authentication"
         end
         @sock.clear_read_buffer if @sock.respond_to?(:clear_read_buffer)
+      end
+
+      def write(bytes)
+        begin
+          @inprogress = true
+          result = @sock.write(bytes)
+          @inprogress = false
+          result
+        rescue SystemCallError, Timeout::Error => e
+          failure!(e)
+        end
+      end
+
+      def read(count)
+        begin
+          @inprogress = true
+          data = @sock.readfull(count)
+          @inprogress = false
+          data
+        rescue SystemCallError, Timeout::Error, EOFError => e
+          failure!(e)
+        end
       end
 
       require_relative 'meta/key_regularizer'

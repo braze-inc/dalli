@@ -1,4 +1,4 @@
-# frozen_string_literal: false
+# frozen_string_literal: true
 
 module Dalli
   module Protocol
@@ -7,23 +7,31 @@ module Dalli
         TERMINATOR = "\r\n"
 
         def self.meta_get(key:, value: true, return_cas: false, ttl: nil, base64: false, quiet: false)
-          cmd = "mg #{key}"
-          cmd << ' v f' if value
-          cmd << ' c' if return_cas
-          cmd << ' b' if base64
-          cmd << " T#{ttl}" if ttl
-          cmd << ' k q s' if quiet
-          cmd << TERMINATOR
+          if quiet && value && return_cas && !ttl
+            base64 ? "mg #{key} v f c b k q s\r\n" : "mg #{key} v f c k q s\r\n"
+          elsif !quiet && value && !return_cas && !ttl
+            base64 ? "mg #{key} v f b\r\n" : "mg #{key} v f\r\n"
+          else
+            cmd = "mg #{key}"
+            cmd << ' v f' if value
+            cmd << ' c' if return_cas
+            cmd << ' b' if base64
+            cmd << " T#{ttl}" if ttl
+            cmd << ' k q s' if quiet
+            cmd << TERMINATOR
+          end
         end
+
+        APPEND_PREPEND_MODES = %i[append prepend].freeze
 
         def self.meta_set(key:, value:, bitflags: nil, cas: nil, ttl: nil, mode: :set, base64: false, quiet: false)
           cmd = "ms #{key} #{value.bytesize}"
-          cmd << ' c' unless %i[append prepend].include?(mode)
+          cmd << ' c' unless APPEND_PREPEND_MODES.include?(mode)
           cmd << ' b' if base64
-          cmd << " F#{bitflags}" if bitflags
-          cmd << cas_string(cas)
+          cmd << " F#{bitflags}" if bitflags && bitflags != 0
+          cmd << " C#{cas}" if cas && cas != 0
           cmd << " T#{ttl}" if ttl
-          cmd << " M#{mode_to_token(mode)}"
+          cmd << " M#{MODE_TOKENS[mode] || 'S'}"
           cmd << ' q' if quiet
           cmd << TERMINATOR
         end
@@ -58,7 +66,7 @@ module Dalli
 
         def self.flush(delay: nil)
           cmd = +'flush_all'
-          cmd << " #{parse_to_64_bit_int(delay, 0)}" if delay
+          cmd << " #{delay.to_i}" if delay
           cmd << TERMINATOR
         end
 
@@ -68,25 +76,10 @@ module Dalli
           cmd << TERMINATOR
         end
 
-        def self.mode_to_token(mode)
-          case mode
-          when :add then 'E'
-          when :replace then 'R'
-          when :append then 'A'
-          when :prepend then 'P'
-          else 'S'
-          end
-        end
+        MODE_TOKENS = { add: 'E', replace: 'R', append: 'A', prepend: 'P', set: 'S' }.freeze
 
         def self.cas_string(cas)
-          cas = parse_to_64_bit_int(cas, nil)
-          cas.nil? || cas.zero? ? '' : " C#{cas}"
-        end
-
-        def self.parse_to_64_bit_int(val, default)
-          val.nil? ? nil : Integer(val)
-        rescue ArgumentError
-          default
+          cas && cas != 0 ? " C#{cas}" : ''
         end
       end
     end

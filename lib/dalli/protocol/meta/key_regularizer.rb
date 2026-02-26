@@ -10,7 +10,7 @@ module Dalli
         WHITESPACE = /\s/
 
         def self.encode(key)
-          return [key, false] if key.ascii_only? && !WHITESPACE.match(key)
+          return [key, false] if key.ascii_only? && !WHITESPACE.match?(key)
 
           [([key].pack('m0')), true]
         end
