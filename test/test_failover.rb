@@ -21,6 +21,26 @@ describe 'failover' do
         assert_equal(value, dc.get("test_123"))
       end
     end
+
+    it 'closes sockets on Timeout::Error during get_multi' do
+      memcached_persistent do |dc|
+        dc.set("key1", "val1")
+
+        ring = dc.send(:ring)
+        ring.servers.each { |s| assert s.alive? }
+
+        ring.servers.each do |s|
+          s.stubs(:multi_response_start).raises(Timeout::Error.new('external timeout'))
+        end
+
+        assert_raises Timeout::Error do
+          dc.get_multi("key1")
+        end
+
+        involved_server = ring.servers.find { |s| s.sock.nil? }
+        refute_nil involved_server, "Expected at least one server socket to be closed"
+      end
+    end
   end
 
 
