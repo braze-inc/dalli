@@ -72,7 +72,7 @@ module Dalli
         verify_state
         raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
         begin
-          if @pending_multi_response && (!multi? || !ALLOWED_MULTI_OPS.include?(op))
+          if @pending_multi_response && (!multi? || !self.class::ALLOWED_MULTI_OPS.include?(op))
             noop
             @pending_multi_response = false
           end
