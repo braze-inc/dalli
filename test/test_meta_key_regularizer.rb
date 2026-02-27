@@ -33,6 +33,12 @@ describe 'Dalli::Protocol::Meta::KeyRegularizer' do
       key, base64 = kr.encode("key\nwith\nnewlines")
       assert_equal true, base64
     end
+
+    it 'base64-encodes keys with control bytes' do
+      key, base64 = kr.encode("key\x00with\x01controls")
+      assert_equal true, base64
+      assert key.ascii_only?
+    end
   end
 
   describe '.decode' do
@@ -51,8 +57,17 @@ describe 'Dalli::Protocol::Meta::KeyRegularizer' do
       original.force_encoding(Encoding::UTF_8)
       encoded, base64 = kr.encode(original)
       decoded = kr.decode(encoded, base64)
-      assert_equal original, decoded
-      assert_equal Encoding::UTF_8, decoded.encoding
+      assert_equal original.bytes, decoded.bytes
+    end
+
+    it 'preserves binary bytes for non-utf8 keys' do
+      original = +"key\xFFvalue"
+      original.force_encoding(Encoding::BINARY)
+      encoded, base64 = kr.encode(original)
+      decoded = kr.decode(encoded, base64)
+
+      assert_equal original.bytes, decoded.bytes
+      assert_equal Encoding::BINARY, decoded.encoding
     end
   end
 end

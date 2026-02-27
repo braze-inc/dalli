@@ -61,19 +61,26 @@ module Dalli
 
         def meta_set_with_cas
           line = read_line
-          return false unless line.start_with?(HD)
+          return false if line.start_with?(NS) || line.start_with?(NF) || line.start_with?(EX)
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(HD)
 
           extract_flag_value(line, 'c', 2) || 0
         end
 
         def meta_set_append_prepend
           line = read_line
-          line.start_with?(HD)
+          return false if line.start_with?(NS) || line.start_with?(NF) || line.start_with?(EX)
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(HD)
+
+          true
         end
 
         def meta_delete
           line = read_line
-          line.start_with?(HD)
+          return false if line.start_with?(NF) || line.start_with?(EX)
+          raise Dalli::DalliError, "Response error: #{line}" unless line.start_with?(HD)
+
+          true
         end
 
         def decr_incr
