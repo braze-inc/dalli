@@ -326,6 +326,10 @@ module Dalli
       [n >> 32, 0xFFFFFFFF & n]
     end
 
+    def post_connect
+      sasl_authentication if need_auth?
+    end
+
     REQUEST = 0x80
     RESPONSE = 0x81
 
