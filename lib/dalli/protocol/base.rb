@@ -288,7 +288,7 @@ module Dalli
       end
 
       def connect
-        Dalli.logger.debug { "Dalli::Server#connect #{name}" }
+        Dalli.logger.debug { "#{self.class.name}#connect #{name}" }
 
         begin
           @pid = PIDCache.pid
@@ -297,7 +297,7 @@ module Dalli
           else
             Dalli::Socket::TCP.open(hostname, port, self, options)
           end
-          sasl_authentication if need_auth?
+          post_connect
           @version = version
           up!
         rescue Dalli::DalliError
@@ -324,6 +324,9 @@ module Dalli
         weigh ||= DEFAULT_WEIGHT
         weigh = Integer(weigh)
         return hostnam, por, weigh, socket_type
+      end
+
+      def post_connect
       end
     end
   end
