@@ -7,6 +7,7 @@ class MockSocket
 
   def initialize(options = {})
     @options = options
+    # @read_results is an array of string "chunks" being streamed from the socket
     @read_results = []
     @read_index = 0
   end
