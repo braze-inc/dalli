@@ -28,6 +28,8 @@ module Dalli
       #   toggles that are present only when enabled.
       # - Every command is terminated with CRLF (`"\r\n"`), per text protocol.
       class RequestFormatter
+        APPEND_PREPEND_MODES = %i[append prepend].freeze
+        MODE_TOKENS = { add: 'E', replace: 'R', append: 'A', prepend: 'P', set: 'S' }.freeze
         TERMINATOR = "\r\n"
 
         def self.meta_get(key:, value: true, return_cas: false, ttl: nil, base64: false, quiet: false)
@@ -45,8 +47,6 @@ module Dalli
             cmd << TERMINATOR
           end
         end
-
-        APPEND_PREPEND_MODES = %i[append prepend].freeze
 
         def self.meta_set(key:, value:, bitflags: nil, cas: nil, ttl: nil, mode: :set, base64: false, quiet: false)
           cmd = "ms #{key} #{value.bytesize}"
@@ -99,8 +99,6 @@ module Dalli
           cmd << " #{arg}" if arg && !arg.empty?
           cmd << TERMINATOR
         end
-
-        MODE_TOKENS = { add: 'E', replace: 'R', append: 'A', prepend: 'P', set: 'S' }.freeze
 
         def self.cas_string(cas)
           cas && cas != 0 ? " C#{cas}" : ''
