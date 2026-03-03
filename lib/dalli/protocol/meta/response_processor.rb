@@ -6,19 +6,19 @@ module Dalli
       class ResponseProcessor
         TERMINATOR = "\r\n"
 
-        EN = 'EN'
-        END_TOKEN = 'END'
-        EX = 'EX'
-        HD = 'HD'
-        MN = 'MN'
-        NF = 'NF'
-        NS = 'NS'
-        OK = 'OK'
-        RESET = 'RESET'
-        STAT = 'STAT'
-        VA = 'VA'
-        VERSION = 'VERSION'
-        SERVER_ERROR = 'SERVER_ERROR'
+        EN = 'EN' # Key not found (meta get miss)
+        END_TOKEN = 'END' # Terminator for stats output
+        EX = 'EX' # Exists/CAS conflict
+        HD = 'HD' # Success header-only response
+        MN = 'MN' # Meta noop/pipeline terminator
+        NF = 'NF' # Not found (non-get operations)
+        NS = 'NS' # Not stored
+        OK = 'OK' # Generic success
+        RESET = 'RESET' # stats reset acknowledgement
+        STAT = 'STAT' # stats line prefix
+        VA = 'VA' # Value response header
+        VERSION = 'VERSION' # version response prefix
+        SERVER_ERROR = 'SERVER_ERROR' # Server-side error response
 
         def initialize(server)
           @server = server
