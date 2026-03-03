@@ -3,6 +3,13 @@
 module Dalli
   module Protocol
     class Meta
+      # Parses memcached text and meta protocol responses for meta operations.
+      #
+      # Response codes handled in this class come from:
+      # - Meta protocol tokens (`VA`, `HD`, `EN`, `EX`, `NF`, `NS`, `MN`):
+      #   https://github.com/memcached/memcached/wiki/MetaCommands
+      # - Text protocol tokens (`STAT`, `END`, `OK`, `VERSION`, `SERVER_ERROR`):
+      #   https://github.com/memcached/memcached/blob/master/doc/protocol.txt
       class ResponseProcessor
         TERMINATOR = "\r\n"
 
