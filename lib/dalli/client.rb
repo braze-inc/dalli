@@ -361,11 +361,14 @@ module Dalli
     end
 
     def protocol_class
-      if @options[:protocol] == :meta
+      case (@options[:protocol] || :binary)
+      when :meta
         require 'dalli/protocol/meta'
         Dalli::Protocol::Meta
-      else
+      when :binary
         Dalli::Server
+      else
+        raise ArgumentError, "Invalid protocol option #{@options[:protocol].inspect}. Supported values: :binary, :meta"
       end
     end
 
