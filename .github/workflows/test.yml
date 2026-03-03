@@ -1,8 +1,9 @@
 name: Test Suite
 
 on:
-  push: {}
-  pull_request: {}
+  pull_request:
+  push:
+    branches: [ braze-main ]
 
 jobs:
   test:
