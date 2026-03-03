@@ -3,7 +3,7 @@ require_relative 'helper'
 
 class MockSocket
   include Dalli::Socket::InstanceMethods
-  attr_accessor :options, :read_results
+  attr_accessor :options
 
   def initialize(options = {})
     @options = options
@@ -11,6 +11,11 @@ class MockSocket
     # (e.g. :wait_readable, :wait_writable) being streamed from the attempted
     # socket read.
     @read_results = []
+    @read_index = 0
+  end
+
+  def read_results=(results)
+    @read_results = results
     @read_index = 0
   end
 
