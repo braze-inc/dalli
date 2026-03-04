@@ -361,11 +361,14 @@ module Dalli
     end
 
     def protocol_class
-      if @options[:protocol] == :meta
+      case (@options[:protocol] || :binary)
+      when :meta
         require 'dalli/protocol/meta'
         Dalli::Protocol::Meta
-      else
+      when :binary
         Dalli::Server
+      else
+        raise ArgumentError, "Invalid protocol option #{@options[:protocol].inspect}. Supported values: :binary, :meta"
       end
     end
 
@@ -433,6 +436,7 @@ module Dalli
       perform do
         return {} if keys.empty?
         ring.lock do
+          groups = {}
           begin
             groups = groups_for_keys(keys)
             if unfound_keys = groups.delete(nil)
@@ -484,6 +488,9 @@ module Dalli
                 end
               end
             end
+          rescue Timeout::Error
+            groups.each_key(&:close)
+            raise
           end
         end
       end

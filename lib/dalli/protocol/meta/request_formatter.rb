@@ -3,7 +3,33 @@
 module Dalli
   module Protocol
     class Meta
+      # Builds wire-format command strings for memcached text/meta protocols.
+      #
+      # This class is intentionally "stringly typed": each formatter emits the
+      # exact command bytes expected by memcached over the text protocol socket.
+      # Think of each method as a tiny serializer from Ruby keyword arguments to
+      # memcached command tokens.
+      #
+      # ## Meta command syntax origins
+      #
+      # - `mg`, `ms`, `md`, `ma`, `mn` and their option tokens (`v`, `f`, `c`,
+      #   `b`, `k`, `q`, `s`, `F`, `C`, `T`, `M`, `D`, `J`, `N`) come from the
+      #   memcached meta protocol documentation:
+      #   https://github.com/memcached/memcached/wiki/MetaCommands
+      # - `version`, `stats`, and `flush_all` come from the classic memcached
+      #   text protocol:
+      #   https://github.com/memcached/memcached/blob/master/doc/protocol.txt
+      #
+      # ## Reading the command builders
+      #
+      # - Uppercase-leading options (for example `T90`, `C123`, `MZ`) carry a
+      #   value directly after the option letter.
+      # - Standalone lowercase options (for example `v`, `f`, `q`) are boolean
+      #   toggles that are present only when enabled.
+      # - Every command is terminated with CRLF (`"\r\n"`), per text protocol.
       class RequestFormatter
+        APPEND_PREPEND_MODES = %i[append prepend].freeze
+        MODE_TOKENS = { add: 'E', replace: 'R', append: 'A', prepend: 'P', set: 'S' }.freeze
         TERMINATOR = "\r\n"
 
         def self.meta_get(key:, value: true, return_cas: false, ttl: nil, base64: false, quiet: false)
@@ -21,8 +47,6 @@ module Dalli
             cmd << TERMINATOR
           end
         end
-
-        APPEND_PREPEND_MODES = %i[append prepend].freeze
 
         def self.meta_set(key:, value:, bitflags: nil, cas: nil, ttl: nil, mode: :set, base64: false, quiet: false)
           cmd = "ms #{key} #{value.bytesize}"
@@ -75,8 +99,6 @@ module Dalli
           cmd << " #{arg}" if arg && !arg.empty?
           cmd << TERMINATOR
         end
-
-        MODE_TOKENS = { add: 'E', replace: 'R', append: 'A', prepend: 'P', set: 'S' }.freeze
 
         def self.cas_string(cas)
           cas && cas != 0 ? " C#{cas}" : ''

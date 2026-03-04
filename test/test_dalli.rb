@@ -40,6 +40,31 @@ describe 'Dalli' do
         Dalli::Client.new('foo', {:expires_in => 10, :digest_class => Object })
       end
     end
+
+    describe 'protocol option' do
+      it 'defaults to binary protocol' do
+        dc = Dalli::Client.new('foo')
+        assert_equal Dalli::Server, dc.send(:protocol_class)
+      end
+
+      it 'accepts :binary protocol' do
+        dc = Dalli::Client.new('foo', protocol: :binary)
+        assert_equal Dalli::Server, dc.send(:protocol_class)
+      end
+
+      it 'accepts :meta protocol' do
+        dc = Dalli::Client.new('foo', protocol: :meta)
+        assert_equal Dalli::Protocol::Meta, dc.send(:protocol_class)
+      end
+
+      it 'raises for unknown protocol values' do
+        dc = Dalli::Client.new('foo', protocol: :metaa)
+        error = assert_raises ArgumentError do
+          dc.send(:protocol_class)
+        end
+        assert_match(/Invalid protocol option/, error.message)
+      end
+    end
   end
 
   describe 'key validation' do
