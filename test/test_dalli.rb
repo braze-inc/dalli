@@ -52,12 +52,9 @@ describe 'Dalli' do
         assert_equal Dalli::Server, dc.send(:protocol_class)
       end
 
-      it 'treats :meta as a recognized protocol selector' do
+      it 'accepts :meta protocol' do
         dc = Dalli::Client.new('foo', protocol: :meta)
-        error = assert_raises LoadError do
-          dc.send(:protocol_class)
-        end
-        refute_match(/Invalid protocol option/, error.message)
+        assert_equal Dalli::Protocol::Meta, dc.send(:protocol_class)
       end
 
       it 'raises for unknown protocol values' do
