@@ -93,7 +93,7 @@ module Dalli
       options = options.nil? ? CACHE_NILS : options.merge(CACHE_NILS) if @options[:cache_nils]
       val = get(key, options)
       not_found = @options[:cache_nils] ?
-        val == Dalli::Protocol::Base::NOT_FOUND :
+        val == Dalli::Server::NOT_FOUND :
         val.nil?
       if not_found && block_given?
         val = yield
@@ -355,21 +355,9 @@ module Dalli
             server_options[:password] = uri.password
             s = "#{uri.host}:#{uri.port}"
           end
-          protocol_class.new(s, @options.merge(server_options))
+          Dalli::Server.new(s, @options.merge(server_options))
         end, @options
       )
-    end
-
-    def protocol_class
-      case (@options[:protocol] || :binary)
-      when :meta
-        require 'dalli/protocol/meta'
-        Dalli::Protocol::Meta
-      when :binary
-        Dalli::Server
-      else
-        raise ArgumentError, "Invalid protocol option #{@options[:protocol].inspect}. Supported values: :binary, :meta"
-      end
     end
 
     # Chokepoint method for instrumentation
