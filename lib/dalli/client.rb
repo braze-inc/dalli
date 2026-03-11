@@ -30,6 +30,7 @@ module Dalli
     # - :compressor - defaults to zlib
     # - :cache_nils - defaults to false, if true Dalli will not treat cached nil values as 'not found' for #fetch operations.
     # - :digest_class - defaults to Digest::MD5, allows you to pass in an object that responds to the hexdigest method, useful for injecting a FIPS compliant hash object.
+    # - :protocol - defaults to :binary. Set to :meta to use the meta text protocol (requires memcached 1.6+).
     #
     def initialize(servers=nil, options={})
       @servers = normalize_servers(servers || ENV["MEMCACHE_SERVERS"] || '127.0.0.1:11211')
@@ -92,7 +93,7 @@ module Dalli
       options = options.nil? ? CACHE_NILS : options.merge(CACHE_NILS) if @options[:cache_nils]
       val = get(key, options)
       not_found = @options[:cache_nils] ?
-        val == Dalli::Server::NOT_FOUND :
+        val == Dalli::Protocol::Base::NOT_FOUND :
         val.nil?
       if not_found && block_given?
         val = yield
@@ -347,16 +348,28 @@ module Dalli
     def ring
       @ring ||= Dalli::Ring.new(
         @servers.map do |s|
-         server_options = {}
+          server_options = {}
           if s =~ %r{\Amemcached://}
             uri = URI.parse(s)
             server_options[:username] = uri.user
             server_options[:password] = uri.password
             s = "#{uri.host}:#{uri.port}"
           end
-          Dalli::Server.new(s, @options.merge(server_options))
+          protocol_class.new(s, @options.merge(server_options))
         end, @options
       )
+    end
+
+    def protocol_class
+      case (@options[:protocol] || :binary)
+      when :meta
+        require 'dalli/protocol/meta'
+        Dalli::Protocol::Meta
+      when :binary
+        Dalli::Server
+      else
+        raise ArgumentError, "Invalid protocol option #{@options[:protocol].inspect}. Supported values: :binary, :meta"
+      end
     end
 
     # Chokepoint method for instrumentation
