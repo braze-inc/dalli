@@ -7,10 +7,10 @@ module Dalli
       # non-ASCII characters or whitespace are base64-encoded and sent with the
       # 'b' flag so the server knows to decode them.
       class KeyRegularizer
-        WHITESPACE = /\s/
+        INVALID_META_KEY_CHARS = /[\s[:cntrl:]]/
 
         def self.encode(key)
-          return [key, false] if key.ascii_only? && !WHITESPACE.match?(key)
+          return [key, false] if key.ascii_only? && !INVALID_META_KEY_CHARS.match?(key)
 
           [([key].pack('m0')), true]
         end
@@ -18,7 +18,7 @@ module Dalli
         def self.decode(encoded_key, base64_encoded)
           return encoded_key unless base64_encoded
 
-          encoded_key.unpack1('m0').force_encoding(Encoding::UTF_8)
+          encoded_key.unpack1('m0')
         end
       end
     end
