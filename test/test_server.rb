@@ -127,13 +127,13 @@ describe Dalli::Server do
   describe 'multi_response_abort' do
     it 'clears multi_buffer and position' do
       server.instance_variable_set(:@multi_buffer, 'data')
-      server.instance_variable_set(:@position, 10)
+      server.instance_variable_set(:@multi_position, 10)
       server.instance_variable_set(:@inprogress, true)
 
       server.multi_response_abort
 
       assert_nil server.instance_variable_get(:@multi_buffer)
-      assert_nil server.instance_variable_get(:@position)
+      assert_nil server.instance_variable_get(:@multi_position)
       assert_equal false, server.instance_variable_get(:@inprogress)
     end
   end
