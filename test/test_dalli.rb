@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require_relative 'helper'
 require 'openssl'
+require 'dalli/protocol/meta'
 
 describe 'Dalli' do
   describe 'options parsing' do
