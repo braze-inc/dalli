@@ -117,6 +117,36 @@ module Dalli
         @inprogress = false
       end
 
+      # Start reading key/value pairs from this connection after pipelined
+      # get operations. A protocol-specific noop is sent to terminate the
+      # response stream.
+      #
+      # Returns nothing.
+      def multi_response_start
+        verify_state
+        write_noop
+        @multi_buffer = +''
+        @multi_position = 0
+        @inprogress = true
+      end
+
+      # Did the last call to #multi_response_start complete successfully?
+      def multi_response_completed?
+        @multi_buffer.nil?
+      end
+
+      # Abort an earlier #multi_response_start. Used to signal an external
+      # timeout. The underlying socket is disconnected, and the exception is
+      # swallowed.
+      #
+      # Returns nothing.
+      def multi_response_abort
+        clear_multi_response_state
+        failure!(RuntimeError.new('External timeout'))
+      rescue NetworkError
+        true
+      end
+
       def lock!
       end
 
@@ -134,6 +164,12 @@ module Dalli
       # NOTE: Additional public methods should be overridden in Dalli::Threadsafe
 
       private
+
+      def clear_multi_response_state
+        @multi_buffer = nil
+        @multi_position = nil
+        @inprogress = false
+      end
 
       def verify_state
         failure!(RuntimeError.new('Already writing to socket')) if @inprogress

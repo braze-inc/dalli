@@ -5,24 +5,6 @@ module Dalli
   class Server < Protocol::Base
     ALLOWED_MULTI_OPS = %i[set setq delete deleteq add addq replace replaceq].freeze
 
-    # Start reading key/value pairs from this connection. This is usually called
-    # after a series of GETKQ commands. A NOOP is sent, and the server begins
-    # flushing responses for kv pairs that were found.
-    #
-    # Returns nothing.
-    def multi_response_start
-      verify_state
-      write_noop
-      @multi_buffer = String.new('')
-      @position = 0
-      @inprogress = true
-    end
-
-    # Did the last call to #multi_response_start complete successfully?
-    def multi_response_completed?
-      @multi_buffer.nil?
-    end
-
     # Attempt to receive and parse as many key/value pairs as possible
     # from this server. After #multi_response_start, this should be invoked
     # repeatedly whenever this server's socket is readable until
@@ -34,7 +16,7 @@ module Dalli
 
       @multi_buffer << @sock.read_available
       buf = @multi_buffer
-      pos = @position
+      pos = @multi_position
       values = {}
 
       while buf.bytesize - pos >= 24
@@ -43,9 +25,7 @@ module Dalli
 
         if key_length == 0
           # all done!
-          @multi_buffer = nil
-          @position = nil
-          @inprogress = false
+          clear_multi_response_state
           break
 
         elsif buf.bytesize - pos >= 24 + body_length
@@ -65,25 +45,11 @@ module Dalli
           break
         end
       end
-      @position = pos
+      @multi_position = pos if @multi_buffer
 
       values
     rescue SystemCallError, Timeout::Error, EOFError => e
       failure!(e)
-    end
-
-    # Abort an earlier #multi_response_start. Used to signal an external
-    # timeout. The underlying socket is disconnected, and the exception is
-    # swallowed.
-    #
-    # Returns nothing.
-    def multi_response_abort
-      @multi_buffer = nil
-      @position = nil
-      @inprogress = false
-      failure!(RuntimeError.new('External timeout'))
-    rescue NetworkError
-      true
     end
 
     # NOTE: Additional public methods should be overridden in Dalli::Threadsafe

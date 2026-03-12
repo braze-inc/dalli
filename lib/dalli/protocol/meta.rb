@@ -12,23 +12,6 @@ module Dalli
         @response_processor = nil
       end
 
-      # Start reading key/value pairs from this connection. This is usually called
-      # after a series of quiet mg commands. A mn (meta noop) is sent, and the
-      # server begins flushing responses for kv pairs that were found.
-      #
-      # Returns nothing.
-      def multi_response_start
-        verify_state
-        write_noop
-        @multi_buffer = +''
-        @multi_position = 0
-        @inprogress = true
-      end
-
-      def multi_response_completed?
-        @multi_buffer.nil?
-      end
-
       # Attempt to receive and parse as many key/value pairs as possible from
       # this server. After #multi_response_start, invoke repeatedly whenever
       # this server's socket is readable until #multi_response_completed?.
@@ -48,9 +31,7 @@ module Dalli
           if advance.zero?
             break
           elsif is_terminal && key.nil?
-            @multi_buffer = nil
-            @multi_position = nil
-            @inprogress = false
+            clear_multi_response_state
             break
           elsif key
             begin
@@ -66,15 +47,6 @@ module Dalli
         values
       rescue SystemCallError, Timeout::Error, EOFError => e
         failure!(e)
-      end
-
-      def multi_response_abort
-        @multi_buffer = nil
-        @multi_position = nil
-        @inprogress = false
-        failure!(RuntimeError.new('External timeout'))
-      rescue NetworkError
-        true
       end
 
       # NOTE: Additional public methods should be overridden in Dalli::Threadsafe
