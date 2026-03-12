@@ -118,6 +118,11 @@ describe 'Dalli::Protocol::Meta::ResponseProcessor' do
       proc = build_processor("EX\r\n")
       assert_equal false, proc.meta_set_with_cas
     end
+
+    it 'raises DalliError on unexpected response' do
+      proc = build_processor("SERVER_ERROR out of memory\r\n")
+      assert_raises(Dalli::DalliError) { proc.meta_set_with_cas }
+    end
   end
 
   describe '#meta_delete' do
@@ -129,6 +134,11 @@ describe 'Dalli::Protocol::Meta::ResponseProcessor' do
     it 'returns false on NF' do
       proc = build_processor("NF\r\n")
       assert_equal false, proc.meta_delete
+    end
+
+    it 'raises DalliError on unexpected response' do
+      proc = build_processor("SERVER_ERROR out of memory\r\n")
+      assert_raises(Dalli::DalliError) { proc.meta_delete }
     end
   end
 
