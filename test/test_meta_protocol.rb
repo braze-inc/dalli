@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 require_relative 'helper'
 require 'dalli/protocol/meta'
+require 'dalli/cas/client'
 
 describe 'Dalli Meta Protocol' do
   # Use a dedicated port range for meta protocol tests
@@ -255,6 +256,61 @@ describe 'Dalli Meta Protocol' do
         result = dc.get_multi('mgo1', 'mgo2')
         assert_equal({a: 1}, result['mgo1'])
         assert_equal [1, 2, 3], result['mgo2']
+      end
+    end
+
+    it 'handles get_multi with keys requiring base64 encoding' do
+      memcached_meta_persistent do |dc|
+        unicode_key = +"meta_\xC3\xA9_key"
+        unicode_key.force_encoding(Encoding::UTF_8)
+        spaced_key = 'meta key with spaces'
+        tab_key = "meta\tkey\twith\ttabs"
+
+        dc.set(unicode_key, 'unicode-value')
+        dc.set(spaced_key, 'space-value')
+        dc.set(tab_key, 'tab-value')
+
+        result = dc.get_multi(unicode_key, spaced_key, tab_key)
+        assert_equal 'unicode-value', result[unicode_key]
+        assert_equal 'space-value', result[spaced_key]
+        assert_equal 'tab-value', result[tab_key]
+      end
+    end
+  end
+
+  describe 'CAS client API' do
+    it 'supports get_multi_cas, set_cas, replace_cas, and delete_cas' do
+      memcached_meta_persistent do |_, port|
+        dc = Dalli::Client.new(
+          ["localhost:#{port}", "127.0.0.1:#{port}"],
+          protocol: :meta
+        )
+
+        dc.set('meta_cas_api_key', 'v1')
+        value, cas = dc.get_cas('meta_cas_api_key')
+        assert_equal 'v1', value
+        assert cas.is_a?(Integer)
+        assert cas > 0
+
+        set_cas_result = dc.set_cas('meta_cas_api_key', 'v2', cas)
+        assert set_cas_result.is_a?(Integer)
+        assert set_cas_result > 0
+
+        replace_cas_result = dc.replace_cas('meta_cas_api_key', 'v3', set_cas_result)
+        assert replace_cas_result.is_a?(Integer)
+        assert replace_cas_result > 0
+
+        assert_equal true, dc.delete_cas('meta_cas_api_key', replace_cas_result)
+        assert_nil dc.get('meta_cas_api_key')
+
+        dc.set('meta_multi_cas_1', 'm1')
+        dc.set('meta_multi_cas_2', 'm2')
+        multi = dc.get_multi_cas('meta_multi_cas_1', 'meta_multi_cas_2', 'meta_multi_cas_missing')
+        assert_equal 'm1', multi['meta_multi_cas_1'][0]
+        assert_equal 'm2', multi['meta_multi_cas_2'][0]
+        assert multi['meta_multi_cas_1'][1].is_a?(Integer)
+        assert multi['meta_multi_cas_2'][1].is_a?(Integer)
+        refute multi.key?('meta_multi_cas_missing')
       end
     end
   end
