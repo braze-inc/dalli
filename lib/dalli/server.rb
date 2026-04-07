@@ -71,38 +71,39 @@ module Dalli
     def request(op, *args)
       verify_state
       raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
+      @inprogress = true
       begin
         # if we have exited a multi block, flush any responses that might still be pending
         if @pending_multi_response && (!multi? || !ALLOWED_MULTI_OPS.include?(op))
           noop
           @pending_multi_response = false
         end
-        send(op, *args)
+        result = send(op, *args)
+        @inprogress = false
+        result
       rescue Dalli::MarshalError => ex
         Dalli.logger.error "Marshalling error for key '#{args.first}': #{ex.message}"
         Dalli.logger.error "You are trying to cache a Ruby object which cannot be serialized to memcached."
         Dalli.logger.error ex.backtrace.join("\n\t")
         false
-      rescue Timeout::Error
-        # A Timeout::Error can be injected asynchronously by Thread#raise
-        # (from Timeout.timeout's watchdog thread) at ANY point in execution.
-        # If it fires between write(req) and reading the response for ANY
-        # operation (GET, SET, DELETE, etc.), the server's response remains
-        # in the socket's receive buffer. Without closing, the next operation
-        # reads those stale bytes as if they were its own response.
-        #
-        # Closing the socket discards any potentially stale data and forces
-        # a fresh connection on the next operation. This may occasionally
-        # close a clean socket (if the timeout fired at a "safe" point), but
-        # the performance cost of an extra reconnect is negligible.
-        close
-        raise
-      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize
+      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, Timeout::Error
         raise
       rescue => ex
         Dalli.logger.error "Unexpected exception during Dalli request: #{ex.class.name}: #{ex.message}"
         Dalli.logger.error ex.backtrace.join("\n\t")
         down!
+      ensure
+        # A thread may die (eg via Timeout::Error) at ANY point in execution.
+        # If this occurs between write(req) and reading the response for ANY
+        # operation (GET, SET, DELETE, etc.), the server's response remains
+        # in the socket's receive buffer. Without closing, the next operation
+        # reads those stale bytes as if they were its own response.
+        #
+        # Closing the socket discards any potentially stale data and forces
+        # a fresh connection on the next operation.
+        if @inprogress
+          close
+        end
       end
     end
 
@@ -581,25 +582,15 @@ module Dalli
     end
 
     def write(bytes)
-      begin
-        @inprogress = true
-        result = @sock.write(bytes)
-        @inprogress = false
-        result
-      rescue SystemCallError, Timeout::Error => e
-        failure!(e)
-      end
+      @sock.write(bytes)
+    rescue SystemCallError, Timeout::Error => e
+      failure!(e)
     end
 
     def read(count)
-      begin
-        @inprogress = true
-        data = @sock.readfull(count)
-        @inprogress = false
-        data
-      rescue SystemCallError, Timeout::Error, EOFError => e
-        failure!(e)
-      end
+      @sock.readfull(count)
+    rescue SystemCallError, Timeout::Error, EOFError => e
+      failure!(e)
     end
 
     def read_header

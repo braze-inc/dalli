@@ -171,6 +171,37 @@ describe Dalli::Server do
         end
       end
     end
+
+    it 'closes socket when thread is killed mid-request' do
+      memcached_persistent do |dc|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        wrote = Queue.new
+
+        s.define_singleton_method(:write) do |bytes|
+          result = super(bytes)
+
+          # at this point, the request has been written to the socket, but the response has not been read
+          wrote << true
+
+          # intentionally hang the thread - it will be killed below
+          Thread.stop
+        end
+
+        t = Thread.new do
+          s.request(:get, 'somekey')
+        end
+
+        # wait for the request to be written to the socket, then kill the thread
+        wrote.pop
+        t.kill
+        t.join
+
+        assert_nil s.sock, "Socket should have been closed after Thread.kill to prevent stale data"
+      end
+    end
   end
 
   describe 'serialize' do
