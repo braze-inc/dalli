@@ -2,7 +2,6 @@
 require 'dalli/compressor'
 require 'dalli/client'
 require 'dalli/ring'
-require 'dalli/protocol/base'
 require 'dalli/server'
 require 'dalli/socket'
 require 'dalli/version'
