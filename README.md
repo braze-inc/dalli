@@ -1,12 +1,7 @@
 Dalli [![Build Status](https://secure.travis-ci.org/petergoldstein/dalli.svg)](http://travis-ci.org/petergoldstein/dalli)
 =====
 
-Dalli is a high performance pure Ruby client for accessing memcached servers. It supports:
-
-* binary protocol (default, memcached 1.4+)
-* meta text protocol (`protocol: :meta`, memcached 1.6+)
-
-Meta protocol mode does not support SASL authentication. Dalli should be considered a replacement for the memcache-client gem.
+Dalli is a high performance pure Ruby client for accessing memcached servers.  It works with memcached 1.4+ only as it uses the newer binary protocol.  It should be considered a replacement for the memcache-client gem.
 
 The name is a variant of Salvador Dali for his famous painting [The Persistence of Memory](http://en.wikipedia.org/wiki/The_Persistence_of_Memory).
 

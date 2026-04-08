@@ -3,19 +3,11 @@ require_relative 'helper'
 
 class MockSocket
   include Dalli::Socket::InstanceMethods
-  attr_accessor :options
+  attr_accessor :options, :read_results
 
   def initialize(options = {})
     @options = options
-    # @read_results is an array of string "chunks" and other responses
-    # (e.g. :wait_readable, :wait_writable) being streamed from the attempted
-    # socket read.
     @read_results = []
-    @read_index = 0
-  end
-
-  def read_results=(results)
-    @read_results = results
     @read_index = 0
   end
 
@@ -124,83 +116,6 @@ describe 'Dalli::Socket::InstanceMethods' do
         refute_match(/admin/, error.message)
         refute_match(/secret/, error.message)
       end
-    end
-  end
-
-  describe '#read_line' do
-    it 'returns one CRLF-terminated line' do
-      sock.read_results = ["hello\r\n"]
-      assert_equal "hello\r\n", sock.read_line
-    end
-
-    it 'accumulates chunks until terminator' do
-      sock.read_results = ["he", "llo\r", "\nrest"]
-      assert_equal "hello\r\n", sock.read_line
-      assert_equal "rest", sock.read_from_buffer(4)
-    end
-
-    it 'preserves over-read bytes for read_from_buffer' do
-      sock.read_results = ["first\r\nsecond"]
-      assert_equal "first\r\n", sock.read_line
-      assert_equal "second", sock.read_from_buffer(6)
-    end
-
-    it 'retries on :wait_readable when IO.select succeeds' do
-      sock.read_results = [:wait_readable, "hello\r\n"]
-      IO.stubs(:select).with([sock], nil, nil, 1).returns([[sock]])
-      assert_equal "hello\r\n", sock.read_line
-    end
-
-    it 'raises Timeout::Error on :wait_readable when IO.select times out' do
-      sock.read_results = [:wait_readable]
-      IO.stubs(:select).with([sock], nil, nil, 1).returns(nil)
-      assert_raises(Timeout::Error) { sock.read_line }
-    end
-
-    it 'raises Errno::ECONNRESET when read returns nil' do
-      sock.read_results = [nil]
-      assert_raises(Errno::ECONNRESET) { sock.read_line }
-    end
-  end
-
-  describe '#read_from_buffer' do
-    it 'consumes bytes already buffered by read_line' do
-      sock.read_results = ["abc\r\nXYZ"]
-      assert_equal "abc\r\n", sock.read_line
-      assert_equal "XYZ", sock.read_from_buffer(3)
-    end
-
-    it 'reads exactly requested bytes and preserves remainder' do
-      sock.read_results = ["abc", "def"]
-      assert_equal "abcde", sock.read_from_buffer(5)
-      assert_equal "f", sock.read_from_buffer(1)
-    end
-
-    it 'retries on :wait_writable when IO.select succeeds' do
-      sock.read_results = [:wait_writable, "hello"]
-      IO.stubs(:select).with(nil, [sock], nil, 1).returns([nil, [sock]])
-      assert_equal "hello", sock.read_from_buffer(5)
-    end
-
-    it 'raises Timeout::Error on :wait_writable when IO.select times out' do
-      sock.read_results = [:wait_writable]
-      IO.stubs(:select).with(nil, [sock], nil, 1).returns(nil)
-      assert_raises(Timeout::Error) { sock.read_from_buffer(5) }
-    end
-
-    it 'raises Errno::ECONNRESET when read returns nil' do
-      sock.read_results = [nil]
-      assert_raises(Errno::ECONNRESET) { sock.read_from_buffer(5) }
-    end
-  end
-
-  describe '#clear_read_buffer' do
-    it 'clears internal buffered bytes' do
-      sock.read_results = ["abc\r\nremaining"]
-      assert_equal "abc\r\n", sock.read_line
-      sock.clear_read_buffer
-      sock.read_results = ["new"]
-      assert_equal "new", sock.read_from_buffer(3)
     end
   end
 
