@@ -32,7 +32,7 @@ module Dalli
       end
     end
 
-    def multi_response_start
+    def multi_response_start(keys)
       @lock.synchronize do
         super
       end

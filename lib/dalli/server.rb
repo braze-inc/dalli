@@ -144,17 +144,23 @@ module Dalli
       @options[:compressor]
     end
 
-    # Start reading key/value pairs from this connection. This is usually called
-    # after a series of GETKQ commands. A NOOP is sent, and the server begins
-    # flushing responses for kv pairs that were found.
+    # Send a batch of GETKQ commands for the given keys, followed by a NOOP
+    # sentinel so the server flushes all responses. Sets @inprogress for the
+    # entire write-read cycle; callers must eventually complete or abort the
+    # multi-response to clear it.
     #
     # Returns nothing.
-    def multi_response_start
+    def multi_response_start(keys)
       verify_state
+      if @pending_multi_response
+        noop
+        @pending_multi_response = false
+      end
+      @inprogress = true
+      send_multiget(keys)
       write_noop
       @multi_buffer = String.new('')
       @position = 0
-      @inprogress = true
     end
 
     # Did the last call to #multi_response_start complete successfully?
@@ -302,7 +308,6 @@ module Dalli
       keys.each do |key|
         req << [REQUEST, OPCODES[:getkq], key.bytesize, 0, 0, 0, key.bytesize, 0, 0, key].pack(FORMAT[:getkq])
       end
-      # Could send noop here instead of in multi_response_start
       write(req)
     end
 
