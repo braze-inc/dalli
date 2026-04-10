@@ -71,38 +71,39 @@ module Dalli
     def request(op, *args)
       verify_state
       raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
+      @inprogress = true
       begin
         # if we have exited a multi block, flush any responses that might still be pending
         if @pending_multi_response && (!multi? || !ALLOWED_MULTI_OPS.include?(op))
           noop
           @pending_multi_response = false
         end
-        send(op, *args)
+        result = send(op, *args)
+        @inprogress = false
+        result
       rescue Dalli::MarshalError => ex
         Dalli.logger.error "Marshalling error for key '#{args.first}': #{ex.message}"
         Dalli.logger.error "You are trying to cache a Ruby object which cannot be serialized to memcached."
         Dalli.logger.error ex.backtrace.join("\n\t")
         false
-      rescue Timeout::Error
-        # A Timeout::Error can be injected asynchronously by Thread#raise
-        # (from Timeout.timeout's watchdog thread) at ANY point in execution.
-        # If it fires between write(req) and reading the response for ANY
-        # operation (GET, SET, DELETE, etc.), the server's response remains
-        # in the socket's receive buffer. Without closing, the next operation
-        # reads those stale bytes as if they were its own response.
-        #
-        # Closing the socket discards any potentially stale data and forces
-        # a fresh connection on the next operation. This may occasionally
-        # close a clean socket (if the timeout fired at a "safe" point), but
-        # the performance cost of an extra reconnect is negligible.
-        close
-        raise
-      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize
+      rescue Dalli::DalliError, Dalli::NetworkError, Dalli::ValueOverMaxSize, Timeout::Error
         raise
       rescue => ex
         Dalli.logger.error "Unexpected exception during Dalli request: #{ex.class.name}: #{ex.message}"
         Dalli.logger.error ex.backtrace.join("\n\t")
         down!
+      ensure
+        # A thread may die (eg via Timeout::Error) at ANY point in execution.
+        # If this occurs between write(req) and reading the response for ANY
+        # operation (GET, SET, DELETE, etc.), the server's response remains
+        # in the socket's receive buffer. Without closing, the next operation
+        # reads those stale bytes as if they were its own response.
+        #
+        # Closing the socket discards any potentially stale data and forces
+        # a fresh connection on the next operation.
+        if @inprogress
+          close
+        end
       end
     end
 
@@ -143,17 +144,23 @@ module Dalli
       @options[:compressor]
     end
 
-    # Start reading key/value pairs from this connection. This is usually called
-    # after a series of GETKQ commands. A NOOP is sent, and the server begins
-    # flushing responses for kv pairs that were found.
+    # Send a batch of GETKQ commands for the given keys, followed by a NOOP
+    # sentinel so the server flushes all responses. Sets @inprogress for the
+    # entire write-read cycle; callers must eventually complete or abort the
+    # multi-response to clear it.
     #
     # Returns nothing.
-    def multi_response_start
+    def multi_response_start(keys)
       verify_state
+      if @pending_multi_response
+        noop
+        @pending_multi_response = false
+      end
+      @inprogress = true
+      send_multiget(keys)
       write_noop
       @multi_buffer = String.new('')
       @position = 0
-      @inprogress = true
     end
 
     # Did the last call to #multi_response_start complete successfully?
@@ -301,7 +308,6 @@ module Dalli
       keys.each do |key|
         req << [REQUEST, OPCODES[:getkq], key.bytesize, 0, 0, 0, key.bytesize, 0, 0, key].pack(FORMAT[:getkq])
       end
-      # Could send noop here instead of in multi_response_start
       write(req)
     end
 
@@ -581,25 +587,15 @@ module Dalli
     end
 
     def write(bytes)
-      begin
-        @inprogress = true
-        result = @sock.write(bytes)
-        @inprogress = false
-        result
-      rescue SystemCallError, Timeout::Error => e
-        failure!(e)
-      end
+      @sock.write(bytes)
+    rescue SystemCallError, Timeout::Error => e
+      failure!(e)
     end
 
     def read(count)
-      begin
-        @inprogress = true
-        data = @sock.readfull(count)
-        @inprogress = false
-        data
-      rescue SystemCallError, Timeout::Error, EOFError => e
-        failure!(e)
-      end
+      @sock.readfull(count)
+    rescue SystemCallError, Timeout::Error, EOFError => e
+      failure!(e)
     end
 
     def read_header

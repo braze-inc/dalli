@@ -301,30 +301,16 @@ module Dalli
       keys_array
     end
 
-    def make_multi_get_requests(groups)
+    def start_multi_get(groups)
+      servers = []
       groups.each do |server, keys_for_server|
+        next unless server.alive?
         begin
-          # TODO: do this with the perform chokepoint?
-          # But given the fact that fetching the response doesn't take place
-          # in that slot it's misleading anyway. Need to move all of this method
-          # into perform to be meaningful
-          server.request(:send_multiget, keys_for_server)
+          server.multi_response_start(keys_for_server)
+          servers << server
         rescue DalliError, NetworkError => e
           Dalli.logger.debug { e.inspect }
           Dalli.logger.debug { "unable to get keys for server #{server.name}" }
-        end
-      end
-    end
-
-    def perform_multi_response_start(servers)
-      servers.each do |server|
-        next unless server.alive?
-        begin
-          server.multi_response_start
-        rescue DalliError, NetworkError => e
-          Dalli.logger.debug { e.inspect }
-          Dalli.logger.debug { "results from this server will be missing" }
-          servers.delete(server)
         end
       end
       servers
@@ -423,17 +409,15 @@ module Dalli
       perform do
         return {} if keys.empty?
         ring.lock do
-          groups = {}
+          servers = nil
           begin
             groups = groups_for_keys(keys)
             if unfound_keys = groups.delete(nil)
               Dalli.logger.debug { "unable to get keys for #{unfound_keys.length} keys because no matching server was found" }
             end
-            make_multi_get_requests(groups)
 
-            servers = groups.keys
+            servers = start_multi_get(groups)
             return if servers.empty?
-            servers = perform_multi_response_start(servers)
 
             start = Time.now
             while true
@@ -478,6 +462,12 @@ module Dalli
           rescue Timeout::Error
             groups.each_key(&:close)
             raise
+          ensure
+            if servers
+              servers.each do |server|
+                server.multi_response_abort unless server.multi_response_completed?
+              end
+            end
           end
         end
       end

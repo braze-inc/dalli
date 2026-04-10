@@ -112,6 +112,48 @@ describe Dalli::Server do
     end
   end
 
+  describe 'multi_response_start' do
+    it 'sets inprogress and initializes multi_buffer' do
+      memcached_persistent do |dc, port|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        s.multi_response_start(['somekey'])
+
+        assert_equal true, s.instance_variable_get(:@inprogress)
+        refute_nil s.instance_variable_get(:@multi_buffer)
+        assert_equal 0, s.instance_variable_get(:@position)
+
+        s.multi_response_abort
+      end
+    end
+
+    it 'rejects calls when inprogress is already true' do
+      server.instance_variable_set(:@inprogress, true)
+      assert_raises Dalli::NetworkError do
+        server.multi_response_start(['key'])
+      end
+    end
+
+    it 'flushes pending_multi_response before writing' do
+      memcached_persistent do |dc, port|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        s.instance_variable_set(:@pending_multi_response, true)
+        s.expects(:noop).once
+
+        s.multi_response_start(['somekey'])
+
+        assert_equal false, s.instance_variable_get(:@pending_multi_response)
+
+        s.multi_response_abort
+      end
+    end
+  end
+
   describe 'multi_response_completed?' do
     it 'returns true when multi_buffer is nil' do
       server.instance_variable_set(:@multi_buffer, nil)
@@ -169,6 +211,73 @@ describe Dalli::Server do
           result = s.request(:set, 'key', 'value')
           assert_equal false, result
         end
+      end
+    end
+
+    it 'closes socket when thread is killed mid-request' do
+      memcached_persistent do |dc|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        wrote = Queue.new
+
+        s.define_singleton_method(:write) do |bytes|
+          super(bytes)
+
+          # at this point, the request has been written to the socket, but the response has not been read
+          wrote << true
+
+          # intentionally hang the thread - it will be killed below
+          Thread.stop
+        end
+
+        t = Thread.new do
+          s.request(:get, 'somekey')
+        end
+
+        # wait for the request to be written to the socket, then kill the thread
+        wrote.pop
+        t.kill
+        t.join
+
+        assert_nil s.sock, "Socket should have been closed after Thread.kill to prevent stale data"
+      end
+    end
+
+    it 'closes socket when thread is killed during get_multi' do
+      memcached_persistent do |dc|
+        dc.set('a', 'val_a')
+
+        ring = dc.send(:ring)
+        ring.servers.each { |s| assert s.alive? }
+
+        reading = Queue.new
+
+        # Hook multi_response_nonblock on every server. At this point
+        # multi_response_start has already completed: GETKQ + NOOP are
+        # written and @inprogress is true. Hanging here simulates a
+        # Thread.kill arriving while responses are being read.
+        ring.servers.each do |s|
+          s.define_singleton_method(:multi_response_nonblock) do
+            reading << true
+
+            # intentionally hang the thread - it will be killed below
+            Thread.stop
+          end
+        end
+
+        t = Thread.new do
+          dc.get_multi('a')
+        end
+
+        # wait for the response-reading phase, then kill the thread
+        reading.pop
+        t.kill
+        t.join
+
+        involved = ring.servers.find { |s| s.sock.nil? }
+        refute_nil involved, "Socket should have been closed after Thread.kill to prevent stale data"
       end
     end
   end
