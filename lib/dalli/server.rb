@@ -583,7 +583,7 @@ module Dalli
     def write(bytes)
       begin
         @inprogress = true
-        result = @sock.write(bytes)
+        result = @sock.writefull(bytes)
         @inprogress = false
         result
       rescue SystemCallError, Timeout::Error => e

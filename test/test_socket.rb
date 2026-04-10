@@ -3,17 +3,25 @@ require_relative 'helper'
 
 class MockSocket
   include Dalli::Socket::InstanceMethods
-  attr_accessor :options, :read_results
+  attr_accessor :options, :read_results, :write_results
 
   def initialize(options = {})
     @options = options
     @read_results = []
+    @write_results = []
     @read_index = 0
+    @write_index = 0
   end
 
   def read_nonblock(_count, exception: true)
     result = @read_results[@read_index]
     @read_index += 1
+    result
+  end
+
+  def write_nonblock(_bytes, exception: true)
+    result = @write_results[@write_index]
+    @write_index += 1
     result
   end
 end
@@ -75,6 +83,70 @@ describe 'Dalli::Socket::InstanceMethods' do
       it 'excludes credentials from Errno::ECONNRESET message' do
         sock.read_results = [nil]
         error = assert_raises(Errno::ECONNRESET) { sock.readfull(5) }
+        refute_match(/admin/, error.message)
+        refute_match(/secret/, error.message)
+      end
+    end
+  end
+
+  describe '#writefull' do
+    it 'writes all bytes in a single call' do
+      sock.write_results = [5]
+      assert_equal 5, sock.writefull("hello")
+    end
+
+    it 'handles partial writes across multiple calls' do
+      sock.write_results = [2, 3]
+      assert_equal 5, sock.writefull("hello")
+    end
+
+    it 'retries on :wait_writable when IO.select succeeds' do
+      sock.write_results = [:wait_writable, 5]
+      IO.stubs(:select).with(nil, [sock], nil, 1).returns([nil, [sock]])
+      assert_equal 5, sock.writefull("hello")
+    end
+
+    it 'retries on :wait_readable when IO.select succeeds' do
+      sock.write_results = [:wait_readable, 5]
+      IO.stubs(:select).with([sock], nil, nil, 1).returns([[sock]])
+      assert_equal 5, sock.writefull("hello")
+    end
+
+    it 'raises Timeout::Error on :wait_writable when IO.select times out' do
+      sock.write_results = [:wait_writable]
+      IO.stubs(:select).with(nil, [sock], nil, 1).returns(nil)
+      assert_raises(Timeout::Error) { sock.writefull("hello") }
+    end
+
+    it 'raises Timeout::Error on :wait_readable when IO.select times out' do
+      sock.write_results = [:wait_readable]
+      IO.stubs(:select).with([sock], nil, nil, 1).returns(nil)
+      assert_raises(Timeout::Error) { sock.writefull("hello") }
+    end
+
+    it 'delivers all bytes through a real socket pair' do
+      s1, s2 = Socket.pair(:UNIX, :STREAM, 0)
+      s1.extend(Dalli::Socket::InstanceMethods)
+      def s1.options; { socket_timeout: 5 }; end
+
+      data = "hello world"
+      result = s1.writefull(data)
+      s1.close
+
+      assert_equal data.bytesize, result
+      assert_equal data, s2.read
+    ensure
+      s1&.close rescue nil
+      s2&.close rescue nil
+    end
+
+    describe 'with credentials' do
+      let(:sock) { MockSocket.new(socket_timeout: 1, username: 'admin', password: 'secret') }
+
+      it 'excludes credentials from Timeout::Error message' do
+        sock.write_results = [:wait_writable]
+        IO.stubs(:select).with(nil, [sock], nil, 1).returns(nil)
+        error = assert_raises(Timeout::Error) { sock.writefull("hello") }
         refute_match(/admin/, error.message)
         refute_match(/secret/, error.message)
       end
@@ -179,6 +251,19 @@ describe 'Dalli::Socket::TCP' do
     @sock = Dalli::Socket::TCP.open('127.0.0.1', @port, 'my_server', socket_timeout: 5)
     assert_equal 'my_server', @sock.server
   end
+
+  it 'raises SocketError for unresolvable hostname' do
+    assert_raises(SocketError) do
+      Dalli::Socket::TCP.open('this-host-does-not-exist.invalid', 11211, 'srv', socket_timeout: 1)
+    end
+  end
+
+  it 'includes hostname in SocketError message for unresolvable host' do
+    error = assert_raises(SocketError) do
+      Dalli::Socket::TCP.open('this-host-does-not-exist.invalid', 11211, 'srv', socket_timeout: 1)
+    end
+    assert_match(/this-host-does-not-exist\.invalid/, error.message)
+  end
 end
 
 describe 'Dalli::Socket::UNIX' do
@@ -211,5 +296,11 @@ describe 'Dalli::Socket::UNIX' do
   it 'assigns the server reference' do
     @sock = Dalli::Socket::UNIX.open(@path, 'my_server', socket_timeout: 5)
     assert_equal 'my_server', @sock.server
+  end
+
+  it 'raises Errno::ENOENT for non-existent socket path' do
+    assert_raises(Errno::ENOENT) do
+      Dalli::Socket::UNIX.open('/tmp/nonexistent_dalli_test_socket', 'srv', socket_timeout: 1)
+    end
   end
 end
