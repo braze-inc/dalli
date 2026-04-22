@@ -136,18 +136,43 @@ describe Dalli::Server do
       end
     end
 
-    it 'flushes pending_multi_response before writing' do
+    it 'drains pending_multi_response with noop when write count is at or below threshold' do
       memcached_persistent do |dc, port|
         ring = dc.send(:ring)
         s = ring.servers.first
         assert s.alive?
 
+        original_sock = s.sock
         s.instance_variable_set(:@pending_multi_response, true)
+        s.instance_variable_set(:@pending_write_count, Dalli::Server::MAX_SAFE_DRAIN_COUNT)
+
         s.expects(:noop).once
+        s.multi_response_start(['somekey'])
+
+        assert_equal false, s.instance_variable_get(:@pending_multi_response)
+        assert_equal 0, s.instance_variable_get(:@pending_write_count)
+        assert_equal original_sock, s.sock, "Socket should be reused when write count is within threshold"
+
+        s.multi_response_abort
+      end
+    end
+
+    it 'closes and reconnects when pending write count exceeds threshold' do
+      memcached_persistent do |dc, port|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        original_sock = s.sock
+        s.instance_variable_set(:@pending_multi_response, true)
+        s.instance_variable_set(:@pending_write_count, Dalli::Server::MAX_SAFE_DRAIN_COUNT + 1)
 
         s.multi_response_start(['somekey'])
 
         assert_equal false, s.instance_variable_get(:@pending_multi_response)
+        assert_equal 0, s.instance_variable_get(:@pending_write_count)
+        refute_nil s.sock, "Socket should be open after reconnect"
+        refute_equal original_sock, s.sock, "Socket should be a new connection when write count exceeds threshold"
 
         s.multi_response_abort
       end
@@ -180,6 +205,35 @@ describe Dalli::Server do
     end
   end
 
+  describe 'pending_write_count' do
+    it 'increments on quiet set and resets after drain' do
+      memcached_persistent do |dc|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        original_dalli_multi = Thread.current[:dalli_multi]
+        begin
+          Thread.current[:dalli_multi] = true
+          s.request(:set, 'k1', 'v', 100, 0, {})
+          s.request(:set, 'k2', 'v', 100, 0, {})
+          s.request(:set, 'k3', 'v', 100, 0, {})
+        ensure
+          Thread.current[:dalli_multi] = original_dalli_multi
+        end
+
+        assert_equal 3, s.instance_variable_get(:@pending_write_count)
+        assert_equal true, s.instance_variable_get(:@pending_multi_response)
+
+        # A subsequent read (below threshold) drains with noop, resets count
+        s.request(:get, 'k1')
+
+        assert_equal 0, s.instance_variable_get(:@pending_write_count)
+        assert_equal false, s.instance_variable_get(:@pending_multi_response)
+      end
+    end
+  end
+
   describe 'request error handling' do
     it 'closes socket on Timeout::Error and re-raises' do
       memcached_persistent do |dc|
@@ -195,6 +249,46 @@ describe Dalli::Server do
         end
 
         assert_nil s.sock
+      end
+    end
+
+    it 'drains pending_multi_response with noop when write count is at or below threshold' do
+      memcached_persistent do |dc|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        original_sock = s.sock
+        s.instance_variable_set(:@pending_multi_response, true)
+        s.instance_variable_set(:@pending_write_count, Dalli::Server::MAX_SAFE_DRAIN_COUNT)
+
+        s.expects(:noop).once
+        result = s.request(:get, 'somekey')
+
+        assert_equal false, s.instance_variable_get(:@pending_multi_response)
+        assert_equal 0, s.instance_variable_get(:@pending_write_count)
+        assert_equal original_sock, s.sock, "Socket should be reused when write count is within threshold"
+        assert_nil result, "GET on non-existent key should return nil"
+      end
+    end
+
+    it 'closes and reconnects when pending write count exceeds threshold before a non-multi op' do
+      memcached_persistent do |dc|
+        ring = dc.send(:ring)
+        s = ring.servers.first
+        assert s.alive?
+
+        original_sock = s.sock
+        s.instance_variable_set(:@pending_multi_response, true)
+        s.instance_variable_set(:@pending_write_count, Dalli::Server::MAX_SAFE_DRAIN_COUNT + 1)
+
+        result = s.request(:get, 'somekey')
+
+        assert_equal false, s.instance_variable_get(:@pending_multi_response)
+        assert_equal 0, s.instance_variable_get(:@pending_write_count)
+        refute_nil s.sock, "Socket should be open after reconnect"
+        refute_equal original_sock, s.sock, "Socket should be a new connection when write count exceeds threshold"
+        assert_nil result, "GET on non-existent key should return nil"
       end
     end
 
