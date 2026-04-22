@@ -45,6 +45,15 @@ module Dalli
 
     ALLOWED_MULTI_OPS = %i[set setq delete deleteq add addq replace replaceq].freeze
 
+    # Maximum number of unread quiet-mode write ACKs to drain via noop before
+    # giving up and closing the connection instead. Each ACK read is bounded by
+    # socket_timeout (default 450 ms), so above this threshold the drain could
+    # hold ring.lock for MAX_SAFE_DRAIN_COUNT * socket_timeout seconds — long
+    # enough to exceed a Rack timeout. Below the threshold the drain is fast
+    # (typically < 5 ms total) and avoids a TCP reconnect on every read that
+    # follows a write.
+    MAX_SAFE_DRAIN_COUNT = 10
+
     def initialize(attribs, options = {})
       @hostname, @port, @weight, @socket_type = parse_hostname(attribs)
       @fail_count = 0
@@ -57,6 +66,7 @@ module Dalli
       @pid = nil
       @inprogress = nil
       @pending_multi_response = nil
+      @pending_write_count = 0
     end
 
     def name
@@ -73,10 +83,23 @@ module Dalli
       raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
       @inprogress = true
       begin
-        # if we have exited a multi block, flush any responses that might still be pending
+        # if we have exited a multi block, discard any pending write ACKs
         if @pending_multi_response && (!multi? || !ALLOWED_MULTI_OPS.include?(op))
-          noop
           @pending_multi_response = false
+          if @pending_write_count > MAX_SAFE_DRAIN_COUNT
+            # Too many pending ACKs to drain safely. Draining blocks ring.lock
+            # for up to pending_write_count * socket_timeout seconds — long
+            # enough to exceed a Rack timeout. Close instead: the write ACKs
+            # are fire-and-forget from quiet mode and were never intended to be
+            # read, so discarding them is semantically correct.
+            @pending_write_count = 0
+            close
+            raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
+            @inprogress = true
+          else
+            @pending_write_count = 0
+            noop
+          end
         end
         result = send(op, *args)
         @inprogress = false
@@ -128,6 +151,7 @@ module Dalli
       @sock = nil
       @pid = nil
       @inprogress = false
+      @pending_write_count = 0
     end
 
     def lock!
@@ -153,8 +177,17 @@ module Dalli
     def multi_response_start(keys)
       verify_state
       if @pending_multi_response
-        noop
         @pending_multi_response = false
+        if @pending_write_count > MAX_SAFE_DRAIN_COUNT
+          # See #request for the rationale: close when the pending count is large
+          # enough that the noop drain would block ring.lock for too long.
+          @pending_write_count = 0
+          close
+          raise Dalli::NetworkError, "#{name} is down: #{@error} #{@msg}. If you are sure it is running, ensure memcached version is > 1.4." unless alive?
+        else
+          @pending_write_count = 0
+          noop
+        end
       end
       @inprogress = true
       send_multiget(keys)
@@ -318,8 +351,12 @@ module Dalli
       guard_max_value(key, value) do
         req = [REQUEST, OPCODES[multi? ? :setq : :set], key.bytesize, 8, 0, 0, value.bytesize + key.bytesize + 8, 0, cas, flags, ttl, key, value].pack(FORMAT[:set])
         write(req)
-        @pending_multi_response ||= multi?
-        cas_response unless multi?
+        if multi?
+          @pending_multi_response = true
+          @pending_write_count += 1
+        else
+          cas_response
+        end
       end
     end
 
@@ -330,8 +367,12 @@ module Dalli
       guard_max_value(key, value) do
         req = [REQUEST, OPCODES[multi? ? :addq : :add], key.bytesize, 8, 0, 0, value.bytesize + key.bytesize + 8, 0, 0, flags, ttl, key, value].pack(FORMAT[:add])
         write(req)
-        @pending_multi_response ||= multi?
-        cas_response unless multi?
+        if multi?
+          @pending_multi_response = true
+          @pending_write_count += 1
+        else
+          cas_response
+        end
       end
     end
 
@@ -342,16 +383,24 @@ module Dalli
       guard_max_value(key, value) do
         req = [REQUEST, OPCODES[multi? ? :replaceq : :replace], key.bytesize, 8, 0, 0, value.bytesize + key.bytesize + 8, 0, cas, flags, ttl, key, value].pack(FORMAT[:replace])
         write(req)
-        @pending_multi_response ||= multi?
-        cas_response unless multi?
+        if multi?
+          @pending_multi_response = true
+          @pending_write_count += 1
+        else
+          cas_response
+        end
       end
     end
 
     def delete(key, cas)
       req = [REQUEST, OPCODES[multi? ? :deleteq : :delete], key.bytesize, 0, 0, 0, key.bytesize, 0, cas, key].pack(FORMAT[:delete])
       write(req)
-      @pending_multi_response ||= multi?
-      generic_response unless multi?
+      if multi?
+        @pending_multi_response = true
+        @pending_write_count += 1
+      else
+        generic_response
+      end
     end
 
     def flush(ttl)
