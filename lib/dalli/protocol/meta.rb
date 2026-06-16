@@ -124,10 +124,10 @@ module Dalli
         response_processor.meta_set_with_cas unless quiet?
       end
 
-      # Pipelined set - writes a quiet set request without reading response.
+      # Pipelined set - buffers a quiet set request without reading a response.
       # Used by PipelinedSetter for bulk operations.
       def pipelined_set(key, value, ttl, options)
-        write_storage_req(:set, key, value, ttl, nil, options, quiet: true)
+        write_storage_req(:set, key, value, ttl, nil, options, quiet: true, pipelined: true)
       end
 
       def add(key, value, ttl, options)
@@ -141,7 +141,7 @@ module Dalli
       end
 
       # rubocop:disable Metrics/ParameterLists
-      def write_storage_req(mode, key, raw_value, ttl = nil, cas = nil, options = {}, quiet: quiet?)
+      def write_storage_req(mode, key, raw_value, ttl = nil, cas = nil, options = {}, quiet: quiet?, pipelined: false)
         (value, bitflags) = @value_marshaller.store(key, raw_value, options)
         ttl = TtlSanitizer.sanitize(ttl) if ttl
         encoded_key, base64 = KeyRegularizer.encode(key)
@@ -149,7 +149,9 @@ module Dalli
                                         bitflags: bitflags, cas: cas,
                                         ttl: ttl, mode: mode, quiet: quiet, base64: base64)
         write("#{req}#{value}#{TERMINATOR}")
-        finish_write(quiet)
+        # Pipelined writes are flushed and drained by the caller's terminating
+        # noop, so they bypass the (non-)deferred finish_write bookkeeping.
+        finish_write(quiet) unless pipelined
       end
       # rubocop:enable Metrics/ParameterLists
 

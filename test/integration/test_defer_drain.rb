@@ -14,6 +14,19 @@ describe 'defer_drain behavior' do
         end
       end
 
+      # Wraps each server's noop barrier with a counter so we can assert how many
+      # round-trips a pipelined operation actually performs.
+      def count_noop_barriers(client)
+        counts = Hash.new(0).compare_by_identity
+        client.send(:ring).servers.each do |server|
+          server.define_singleton_method(:write_noop) do
+            counts[self] += 1
+            super()
+          end
+        end
+        counts
+      end
+
       it 'defers the drain for quiet writes and reconciles before the next read' do
         with_deferred_client(p) do |dc|
           key = SecureRandom.hex(3)
@@ -152,6 +165,35 @@ describe 'defer_drain behavior' do
           dc.drain_deferred_responses
 
           assert_equal value, dc.get(key)
+        end
+      end
+
+      it 'pipelines set_multi across servers without a per-key round-trip under defer_drain' do
+        port1 = 23_456
+        port2 = 23_457
+        memcached(p, port1, '', { defer_drain: true }) do
+          memcached(p, port2, '', { defer_drain: true }) do
+            dc = Dalli::Client.new(["127.0.0.1:#{port1}", "127.0.0.1:#{port2}"], defer_drain: true)
+            dc.flush
+
+            pairs = {}
+            40.times { |i| pairs["mk#{i}"] = "mv#{i}" }
+
+            noop_counts = count_noop_barriers(dc)
+            dc.set_multi(pairs)
+
+            total_noops = noop_counts.values.sum
+            server_count = dc.send(:ring).servers.size
+
+            # A correctly pipelined set_multi issues at most one terminating noop
+            # per server.  The regression collapses it into one noop per key
+            # (~40), so anything bounded by the server count proves the fix.
+            assert_operator total_noops, :<=, server_count,
+                            "set_multi issued #{total_noops} noop barriers across " \
+                            "#{server_count} servers; expected pipelined batching"
+
+            pairs.each { |k, v| assert_equal v, dc.get(k) }
+          end
         end
       end
     end
