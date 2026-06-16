@@ -124,10 +124,10 @@ module Dalli
         response_processor.meta_set_with_cas unless quiet?
       end
 
-      # Pipelined set - writes a quiet set request without reading response.
+      # Pipelined set - buffers a quiet set request without reading a response.
       # Used by PipelinedSetter for bulk operations.
       def pipelined_set(key, value, ttl, options)
-        write_storage_req(:set, key, value, ttl, nil, options, quiet: true)
+        write_storage_req(:set, key, value, ttl, nil, options, quiet: true, pipelined: true)
       end
 
       def add(key, value, ttl, options)
@@ -141,7 +141,7 @@ module Dalli
       end
 
       # rubocop:disable Metrics/ParameterLists
-      def write_storage_req(mode, key, raw_value, ttl = nil, cas = nil, options = {}, quiet: quiet?)
+      def write_storage_req(mode, key, raw_value, ttl = nil, cas = nil, options = {}, quiet: quiet?, pipelined: false)
         (value, bitflags) = @value_marshaller.store(key, raw_value, options)
         ttl = TtlSanitizer.sanitize(ttl) if ttl
         encoded_key, base64 = KeyRegularizer.encode(key)
@@ -149,7 +149,9 @@ module Dalli
                                         bitflags: bitflags, cas: cas,
                                         ttl: ttl, mode: mode, quiet: quiet, base64: base64)
         write("#{req}#{value}#{TERMINATOR}")
-        @connection_manager.flush unless quiet
+        # Pipelined writes are flushed and drained by the caller's terminating
+        # noop, so they bypass the (non-)deferred finish_write bookkeeping.
+        finish_write(quiet) unless pipelined
       end
       # rubocop:enable Metrics/ParameterLists
 
@@ -170,7 +172,7 @@ module Dalli
         req = RequestFormatter.meta_set(key: encoded_key, value: value, base64: base64,
                                         cas: cas, ttl: ttl, mode: mode, quiet: quiet?)
         write("#{req}#{value}#{TERMINATOR}")
-        @connection_manager.flush unless quiet?
+        finish_write(quiet?)
       end
       # rubocop:enable Metrics/ParameterLists
 
@@ -180,7 +182,7 @@ module Dalli
         req = RequestFormatter.meta_delete(key: encoded_key, cas: cas,
                                            base64: base64, quiet: quiet?)
         write(req)
-        @connection_manager.flush unless quiet?
+        finish_write(quiet?)
         response_processor.meta_delete unless quiet?
       end
 
@@ -206,14 +208,14 @@ module Dalli
         encoded_key, base64 = KeyRegularizer.encode(key)
         write(RequestFormatter.meta_arithmetic(key: encoded_key, delta: delta, initial: initial, incr: incr, ttl: ttl,
                                                quiet: quiet?, base64: base64))
-        @connection_manager.flush unless quiet?
+        finish_write(quiet?)
         response_processor.decr_incr unless quiet?
       end
 
       # Other Commands
       def flush(delay = 0)
         write(RequestFormatter.flush(delay: delay))
-        @connection_manager.flush unless quiet?
+        finish_write(quiet?)
         response_processor.flush unless quiet?
       end
 
@@ -221,7 +223,30 @@ module Dalli
       # We need to read all the responses at once.
       def noop
         write_noop
-        response_processor.consume_all_responses_until_mn
+        result = response_processor.consume_all_responses_until_mn
+        # A noop drains everything up to and including the MN terminator, so any
+        # deferred quiet responses have now been reconciled.
+        @connection_manager.clear_deferred_responses!
+        result
+      end
+      alias drain_deferred_responses noop
+
+      # Completes a write operation.  Non-quiet writes flush so the caller can
+      # immediately read the response.  Quiet writes under +defer_drain: true+
+      # still send their bytes promptly (so the mutation takes effect on the
+      # server right away) but skip the blocking response drain, recording that
+      # the connection has pending quiet responses to reconcile before the next
+      # read.  Legacy quiet behavior (no defer_drain) leaves the bytes buffered
+      # to be drained at the end of the quiet block.
+      def finish_write(quiet)
+        if quiet
+          return unless defer_drain?
+
+          @connection_manager.flush
+          @connection_manager.mark_responses_deferred!
+        else
+          @connection_manager.flush
+        end
       end
 
       def stats(info = nil)
