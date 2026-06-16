@@ -227,6 +227,7 @@ module Dalli
         @connection_manager.clear_deferred_responses!
         result
       end
+      alias drain_deferred_responses noop
 
       # Completes a write operation.  Non-quiet writes flush so the caller can
       # immediately read the response.  Quiet writes under +defer_drain: true+
@@ -244,16 +245,6 @@ module Dalli
         else
           @connection_manager.flush
         end
-      end
-
-      # Sends a noop barrier and drains all responses (including any error
-      # replies from earlier deferred quiet writes) up to the MN terminator,
-      # then clears the deferred-responses flag.  One amortized round-trip
-      # reconciles any number of preceding deferred writes.
-      def drain_deferred_responses
-        write_noop
-        response_processor.consume_all_responses_until_mn
-        @connection_manager.clear_deferred_responses!
       end
 
       def stats(info = nil)
