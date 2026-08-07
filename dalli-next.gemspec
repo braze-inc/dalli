@@ -3,7 +3,7 @@
 require './lib/dalli/version'
 
 Gem::Specification.new do |s|
-  s.name = 'dalli'
+  s.name = 'dalli-next'
   s.version = Dalli::VERSION
   s.license = 'MIT'
 
